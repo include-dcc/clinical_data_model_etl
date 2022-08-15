@@ -1,0 +1,157 @@
+---
+title: "Harmonize Nexus clinical data"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+
+synLogin()
+```
+
+Read in data:
+
+### Need to set up Synapse project for Nexus
+
+```{r}
+nexus_clinical_data <- read_xlsx(synGet("syn25765850")$path)
+```
+
+##### PARTICIPANT
+
+Clean up headers, delete everything in parens
+Add Study Code = "Nexus"
+
+### need to get KF Patient IDs
+
+```{r}
+nexus_transformed <- nexus_clinical_data %>% 
+  rename_with(~ str_trim(gsub("\\s\\(.*", "", .x))) %>% 
+  mutate(`Study Code` = "Nexus",
+         `External ID` = `Participant ID`, .before = everything())
+```
+
+Family ID - as is
+
+Family Type = "Proband-only"
+
+Sex = as is
+
+Race
+```{r}
+unique(nexus_transformed$Race)
+
+nexus_transformed <- nexus_transformed %>%
+  mutate(Race = case_when(
+    Race == "Other (White and Hispanic)" ~ "White",
+    Race == "Other (Hispanic)" ~ "Other",
+    Race == "Black" ~ "Black or African American",
+    TRUE ~ Race
+  ))
+
+```
+
+Ethnicity - as is
+
+Down Syndrome Status = all T21
+
+Outcomes Vital Status - N/A 
+Age at the Last Vital Status (Days) - N/A
+
+Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
+
+```{r}
+nexus_participant <- nexus_transformed %>% 
+  mutate(`Down Syndrome Status` = "T21",
+         `Family Type` = "Proband-only",
+         `Father ID` = "Not provided",
+         `Mother ID` = "Not provided",
+         `Family Relationship` = "Not provided",
+         `Outcomes Vital Status` = "Not provided",
+         `Age at Last Vital Status` = "Not provided") %>% 
+  select(`Study Code`,
+         `Participant ID`,
+         `External ID`,
+         `Family ID`,
+         `Family Type`,
+         `Father ID`,
+         `Mother ID`,
+         `Family Relationship`,
+         Sex,
+         Race,
+         Ethnicity,
+         `Down Syndrome Status`,
+         `Outcomes Vital Status`,
+         `Age at Last Vital Status`)
+
+```
+
+```{r}
+write_csv(nexus_participant, here::here("output", "nexus_participant.csv"))
+```
+
+
+##### CONDITION
+
+New table! Columns: 
+Participant ID 
+Condition Description 
+Age at Condition Observation (Days) - blank for now 
+Condition Interpretation - all "Observed" for now (ie. only positive assertions) 
+Condition Source - all "Clinical" 
+HPO Label 
+HPO Code 
+MONDO Label 
+MONDO Code 
+MAXO Label 
+MAXO Code 
+Other Label 
+Other Code
+
+
+Bring in previously annotated phenotypes csv downloaded from ETL Google sheet (https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1006243162)
+
+```{r}
+pheno_lookup <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
+  filter(cohort == "Nexus")
+```
+
+
+Pull conditions from clinical data
+Add annotations from lookup table
+Create empty/all same value columns
+Select columns in order of DCA template
+```{r}
+
+nexus_condition <- nexus_transformed %>% 
+  select(`Study Code`,
+         `Participant ID`,
+         `Condition Description` = `Diagnoses Text`) %>% 
+  left_join(pheno_lookup, 
+            by = c("Condition Description" = "source_column_value")) %>% 
+  mutate(`Age at Condition Observation` = "Not provided",
+         `Condition Interpretation` = "Observed",
+         `Condition Source` = "Clinical") %>% 
+  select(`Study Code`,
+         `Participant ID`,
+         `Condition Description`,
+         `Age at Condition Observation`,
+         `Condition Interpretation`,
+         `Condition Source`,
+         `HPO Label` = HPO_label,
+         `HPO Code` = HPO_code,
+         `MONDO Label` = MONDO_label,
+         `MONDO Code` = MONDO_code,
+         `MAXO Label` = MAXO_label,
+         `MAXO Code` = MAXO_code,
+         `Other Label` = Other_label,
+         `Other Code` = Other_code)
+```
+
+```{r}
+write_csv(nexus_condition, here::here("output", "nexus_condition.csv"))
+```
