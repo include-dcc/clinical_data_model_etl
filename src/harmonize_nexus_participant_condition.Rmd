@@ -116,29 +116,42 @@ Other Code
 Bring in previously annotated phenotypes csv downloaded from ETL Google sheet (https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1006243162)
 
 ```{r}
-pheno_lookup <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
+pheno_lookup_nexus <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
   filter(cohort == "Nexus")
 ```
 
 
 Pull conditions from clinical data
 Add annotations from lookup table
+
+Pull DS diagnoses and look up annotations
+
+Combine conditions/DS diagnoses
 Create empty/all same value columns
 Select columns in order of DCA template
 ```{r}
+nexus_conditions_subset <- nexus_transformed %>% 
+  select(`Study Code`,
+         `Participant ID`,
+         `Source Text` = `Diagnoses Text`) %>% 
+  left_join(pheno_lookup_nexus, 
+            by = c("Source Text" = "source_column_value"))
 
 nexus_condition <- nexus_transformed %>% 
   select(`Study Code`,
          `Participant ID`,
-         `Condition Description` = `Diagnoses Text`) %>% 
-  left_join(pheno_lookup, 
-            by = c("Condition Description" = "source_column_value")) %>% 
+         `Source Text` = `Type of Trisomy 21`) %>%
+  mutate(`Source Text` = as.character(`Source Text`)) %>% 
+  left_join(pheno_lookup_nexus, 
+            by = c(`Source Text` = "source_column_value")) %>% 
+  rbind(nexus_conditions_subset) %>% 
+  arrange(`Participant ID`) %>% 
   mutate(`Age at Condition Observation` = "Not provided",
-         `Condition Interpretation` = "Observed",
-         `Condition Source` = "Clinical") %>% 
+       `Condition Interpretation` = "Observed",
+       `Condition Source` = "Clinical") %>% 
   select(`Study Code`,
          `Participant ID`,
-         `Condition Description`,
+         `Condition Description` = display_text,
          `Age at Condition Observation`,
          `Condition Interpretation`,
          `Condition Source`,
@@ -149,7 +162,8 @@ nexus_condition <- nexus_transformed %>%
          `MAXO Label` = MAXO_label,
          `MAXO Code` = MAXO_code,
          `Other Label` = Other_label,
-         `Other Code` = Other_code)
+         `Other Code` = Other_code) %>% 
+  filter(!is.na(`Condition Description`))
 ```
 
 ```{r}

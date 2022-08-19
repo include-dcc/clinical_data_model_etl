@@ -1,5 +1,5 @@
 ---
-title: "Harmonize HTP clinical data"
+title: "Harmonize DSC clinical data"
 output: html_notebook
 ---
 
@@ -13,105 +13,143 @@ library(readxl)
 synLogin()
 ```
 
-Read in data:
-
-** NOTE: "Unknown" is being read in as NA. Doesn't matter currently but will need to fix before adding negative assertions to Condition
-
+Read in data
 ```{r}
-htp_clinical_data <- read_csv(synGet("syn25574963")$path)
+dsc_demographic <- read_csv(synGet("syn26445516")$path)
+dsc_ihq <- read_csv(synGet("syn26445517")$path)
+```
+
+data checks
+```{r}
+# both sets have 3347 unique patients
+n_distinct(dsc_demographic$patient_id)
+n_distinct(dsc_ihq$patient_id)
+
+# why are there 3348 rows in dsc_demo?
+# pt 5458 has 2 identical rows in demo and ihq 
+dsc_demographic %>% group_by(patient_id) %>% count() %>% arrange(desc(n))
+dsc_ihq %>% group_by(session_id) %>% count() %>% arrange(desc(n))
+
+# confirm identical
+dsc_demographic %>% filter(patient_id == 5458) %>% distinct()
+dsc_ihq %>% filter(session_id == 6878) %>% distinct()
+
+# take distinct rows from the 2 datasets
+dsc_demographic <- dsc_demographic %>% distinct()
+dsc_ihq <- dsc_ihq %>% distinct()
+
 ```
 
 ##### PARTICIPANT
 
-Participant Study Code = "HTP"
-
+Family ID = parent_id if exists, otherwise = patient_id
+Bring in parent_id from ihq
 ```{r}
-htp_clinical_transformed <- htp_clinical_data %>% 
-  mutate(`External ID` = 
-           str_extract(LabID, "HTP[:digit:]{4}"),
-         .before = everything()) %>% 
-  mutate(`Study Code` = "HTP", .before = everything())
+dsc_demo_transformed <- dsc_demographic %>% 
+  left_join(dsc_ihq %>% select(patient_id, parent_id) %>% distinct()) %>% 
+  relocate(parent_id, .after = patient_id) %>% 
+  mutate(family_id = ifelse(!is.na(parent_id), parent_id, patient_id),
+         .after = parent_id) 
 ```
 
-Family ID - as is
+Family Type:
+"Proband-only" if 1 unique patient_id/family_id combo
+"Other" if >1 patient_id/family_id
+** may want to add "Siblings" to Family Type in schema
 
-Family Type - we don't have this info for HTP - in portal it just says "other" Father ID - blank in portal Mother ID - blank in portal Family Relationship - in portal it just says "family member" even for probands
+```{r}
+dsc_demo_transformed <- dsc_demo_transformed %>% 
+  group_by(family_id) %>% 
+  mutate(n = n(), .after = family_id) %>% 
+  mutate(family_type = case_when(n == 1 ~ "Proband-only",
+                                 n == 2 ~ "Other"), .after = n) %>% 
+  ungroup()
+```
 
 Sex = as is
 
-Race - remove hyphen from "African American" - replace blank (NA) with "Unknown"
-
+Race:
+- A couple of participants (4068 & 6181) chose all the options including Unknown -> assume they are "more than one race"
+- Not specifying the different races (if >1) for now - maybe in a future release
+- "Prefer not to answer" if all race columns are blank
 ```{r}
-unique(htp_clinical_data$Race)
+dsc_race <- dsc_demo_transformed %>% 
+  select(patient_id, starts_with("race")) %>% 
+  pivot_longer(cols = -patient_id,
+               names_to = "race_col",
+               values_to = "status") %>%
+  filter(status == 1) %>% 
+  group_by(patient_id) %>%
+  mutate(n = n()) %>% 
+  arrange(desc(n)) %>%
+  ungroup() %>% 
+  mutate(race = case_when(n > 1 ~ "More than one race",
+                          n == 1 ~ str_extract(race_col, "(?<=_).*$"))) %>% 
+  mutate(race = case_when(race == "white" ~ "White",
+                          race == "black" ~ "Black or African American",
+                          race == "asian" ~ "Asian",
+                          race == "pacific_islander" ~ "Native Hawaiian or Other Pacific Islander",
+                          race == "american_indian" ~ "American Indian or Alaska Native",
+                          race == "unknown" ~ "Unknown",
+                          TRUE ~ race)) %>% 
+  select(patient_id, race) %>% 
+  distinct()
 
-#Note that the NAs in the HTP data are strings, not `NA`
-htp_clinical_transformed <- htp_clinical_transformed %>% 
-  mutate(Race = str_replace(Race, "Black or African-American", "Black or African American"),
-         Race = replace_na(Race, "Unknown")
-  )
+# join with main Demographic table
+# and replace "NA" with "Prefer not to answer"
+dsc_demo_transformed <- dsc_demo_transformed %>% 
+  left_join(dsc_race) %>% 
+  mutate(race = replace_na(race, "Prefer not to answer"))
 ```
 
-Ethnicity
+Ethnicity - replace NA with Prefer not to answer
 
 ```{r}
-unique(htp_clinical_data$Ethnicity)
-
-htp_clinical_transformed <- htp_clinical_transformed %>% 
-  mutate(Ethnicity = case_when(
-    Ethnicity == "Hispanic / Latino" ~ "Hispanic or Latino",
-    Ethnicity == "Not Hispanic / Latino" ~ "Not Hispanic or Latino",
-    Ethnicity == "Unsure" ~ "Unknown",
-    is.na(Ethnicity) ~ "Unknown",
-    TRUE ~ Ethnicity
-  ))
+dsc_demo_transformed <- dsc_demo_transformed %>% 
+  mutate(ethnicity = replace_na(ethnicity, "Prefer not to answer"))
 ```
 
-Down Syndrome Status
+Down Syndrome Status - all participants have DS
 
+Outcomes Vital Status - it's in IHQ but leave out for now until filtering rules are determined
 ```{r}
-unique(htp_clinical_data$Cohort_type)
 
-htp_clinical_transformed <- htp_clinical_transformed %>% 
-  mutate(`Down Syndrome Status` = case_when(
-    Cohort_type == "Down syndrome" ~ "T21",
-    Cohort_type == "Control" ~ "D21"),
-    .after = Cohort_type)
+unique(dsc_ihq$vital_status)
+
 ```
 
-Outcomes Vital Status - N/A Age at the Last Vital Status (Days) - N/A
 
 Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
 
 Finally, take only distinct Participant ID (filter out multiple visits)
 
 ```{r}
-htp_participant <- htp_clinical_transformed %>% 
-  mutate(`Participant ID` = `External ID`,
-         `Family Type` = "Other",
+dsc_participant <- dsc_demo_transformed %>% 
+  mutate(`Study Code` = "DSC",
          `Father ID` = "Not provided",
          `Mother ID` = "Not provided",
          `Family Relationship` = "Not provided",
-         `Outcomes Vital Status` = "Not provided",
+         `Down Syndrome Status` = "T21",
+         `Outcomes Vital Status` = "TBD",
          `Age at Last Vital Status` = "Not provided") %>% 
   select(`Study Code`,
-         `Participant ID`,
-         `External ID`,
-         `Family ID` = FamilyID,
-         `Family Type`,
+         `Participant ID` = patient_id,
+         `External ID` = patient_id,
+         `Family ID` = family_id,
+         `Family Type` = family_type,
          `Father ID`,
          `Mother ID`,
          `Family Relationship`,
-         Sex,
-         Race,
-         Ethnicity,
+         Sex = gender,
+         Race = race,
+         Ethnicity = ethnicity,
          `Down Syndrome Status`,
          `Outcomes Vital Status`,
-         `Age at Last Vital Status`) %>% 
-  distinct()
+         `Age at Last Vital Status`)
 ```
 
 ```{r}
-write_csv(htp_participant, here::here("output", "htp_participant.csv"))
+write_csv(dsc_participant, here::here("output", "dsc_participant.csv"))
 ```
 
 
