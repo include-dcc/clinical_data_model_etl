@@ -23,62 +23,34 @@ htp_clinical_data <- read_csv(synGet("syn25574963")$path)
 
 ##### PARTICIPANT
 
-Participant Study Code = "HTP"
-
 ```{r}
 htp_clinical_transformed <- htp_clinical_data %>% 
   mutate(`External ID` = 
            str_extract(LabID, "HTP[:digit:]{4}"),
-         .before = everything()) %>% 
-  mutate(`Study Code` = "HTP", .before = everything())
+         .before = everything())
 ```
 
-Family ID - as is
-
-Family Type - we don't have this info for HTP - in portal it just says "other" Father ID - blank in portal Mother ID - blank in portal Family Relationship - in portal it just says "family member" even for probands
-
-Sex = as is
+Cols that need to be transformed:
 
 Race - remove hyphen from "African American" - replace blank (NA) with "Unknown"
+Ethnicity
+Down Syndrome Status
 
 ```{r}
-unique(htp_clinical_data$Race)
-
-#Note that the NAs in the HTP data are strings, not `NA`
 htp_clinical_transformed <- htp_clinical_transformed %>% 
   mutate(Race = str_replace(Race, "Black or African-American", "Black or African American"),
-         Race = replace_na(Race, "Unknown")
-  )
-```
-
-Ethnicity
-
-```{r}
-unique(htp_clinical_data$Ethnicity)
-
-htp_clinical_transformed <- htp_clinical_transformed %>% 
+         Race = replace_na(Race, "Unknown")) %>% 
   mutate(Ethnicity = case_when(
     Ethnicity == "Hispanic / Latino" ~ "Hispanic or Latino",
     Ethnicity == "Not Hispanic / Latino" ~ "Not Hispanic or Latino",
     Ethnicity == "Unsure" ~ "Unknown",
     is.na(Ethnicity) ~ "Unknown",
-    TRUE ~ Ethnicity
-  ))
-```
-
-Down Syndrome Status
-
-```{r}
-unique(htp_clinical_data$Cohort_type)
-
-htp_clinical_transformed <- htp_clinical_transformed %>% 
+    TRUE ~ Ethnicity)) %>% 
   mutate(`Down Syndrome Status` = case_when(
     Cohort_type == "Down syndrome" ~ "T21",
     Cohort_type == "Control" ~ "D21"),
     .after = Cohort_type)
 ```
-
-Outcomes Vital Status - N/A Age at the Last Vital Status (Days) - N/A
 
 Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
 
@@ -86,7 +58,8 @@ Finally, take only distinct Participant ID (filter out multiple visits)
 
 ```{r}
 htp_participant <- htp_clinical_transformed %>% 
-  mutate(`Participant ID` = `External ID`,
+  mutate(`Study Code` = "HTP",
+         `Participant ID` = `External ID`,
          `Family Type` = "Other",
          `Father ID` = "Not provided",
          `Mother ID` = "Not provided",
@@ -117,7 +90,7 @@ write_csv(htp_participant, here::here("output", "htp_participant.csv"))
 
 ##### CONDITION
 
-New table! Columns: 
+Columns: 
 Participant ID 
 Condition Description 
 Age at Condition Observation (Days) - blank for now 
@@ -140,17 +113,15 @@ pheno_lookup_htp <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>%
   filter(cohort == "HTP")
 ```
 
-
-Test: confirm that every set of visits for a participant has the same phenotype values (i.e. 1)
+Data Check: confirm that every set of visits for a participant has the same phenotype values (i.e. 1)
 ```{r}
 htp_clinical_transformed %>% 
-  select(-`Study Code`, -(LabID:MRAbstractionStatus)) %>% 
+  select(-(LabID:MRAbstractionStatus)) %>% 
   group_by(`External ID`) %>% 
   distinct() %>% 
   count() %>% 
   arrange(desc(n))
 ```
-
 
 Pull conditions from clinical data
 ** SPECIAL CASE: Delete column "Anatomical Anomaly" and all "Unsure" cols, per Angela
@@ -161,7 +132,7 @@ htp_conditions_subset <- htp_clinical_transformed %>%
   group_by(`External ID`) %>% 
   distinct() %>% 
   ungroup() %>% 
-  pivot_longer(cols = c(-`Study Code`, -`External ID`), 
+  pivot_longer(cols = c(-`External ID`), 
                names_to = "Source Text",
                values_to = "Status") %>%
   filter(Status == TRUE) %>% 
@@ -178,7 +149,7 @@ Look up annotations
 htp_ds_diagnoses <- htp_clinical_transformed %>% 
   mutate(OfficialDSDiagnosis = ifelse(LabID %in% c("HTP0552A", "HTP0562A", "HTP0568A", "HTP0580A", "HTP0634A", "HTP0639A", "HTP0697A"), "Unsure", OfficialDSDiagnosis)) %>% 
   filter(`Down Syndrome Status` == "T21") %>% 
-  select(`Study Code`, `External ID`,
+  select(`External ID`,
          `Source Text` = OfficialDSDiagnosis) %>% 
   mutate(Status = TRUE) %>% 
   distinct() %>% 
@@ -194,12 +165,12 @@ Select columns in order of DCA template
 htp_condition <- htp_ds_diagnoses %>% 
   rbind(htp_conditions_subset) %>% 
   arrange(`External ID`) %>% 
-  mutate(`Participant ID` = `External ID`,
+  mutate(`Study Code` = "HTP",
+         `Participant ID` = `External ID`,
          `Age at Condition Observation` = "Not provided",
          `Condition Interpretation` = "Observed",
          `Condition Source` = "Clinical") %>% 
-  select(`Study Code`,
-         `Participant ID`,
+  select(`Participant ID`,
          `Condition Description` = display_text,
          `Age at Condition Observation`,
          `Condition Interpretation`,
