@@ -1,0 +1,275 @@
+---
+title: "Harmonize ABCDS clinical data"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+
+synLogin()
+```
+
+Read in data
+```{r}
+control_linkage <- read_xlsx(synGet("syn34654889")$path)
+health_ctl <- read_csv(synGet("syn33401148")$path)
+health_ds <- read_csv(synGet("syn33401163")$path)
+karyo_ds <- read_csv(synGet("syn33401175")$path)
+demo_ctl <- read_csv(synGet("syn33401283")$path)
+demo_ds <- read_csv(synGet("syn33401291")$path)
+```
+
+
+Combine DS and control tables
+
+```{r}
+health_all <- rbind(health_ds, health_ctl)
+demo_all <- rbind(demo_ds, demo_ctl)
+```
+
+
+Data checks
+```{r}
+#417 unique subjects, no setdiff between health & demo
+n_distinct(health_all$subject_label)
+n_distinct(demo_all$subject_label)
+setdiff(health_all$subject_label, demo_all$subject_label)
+
+# most patients have both Baseline & Cycle 2 health & demo
+health_all %>% count(subject_label) %>% arrange(n)
+demo_all %>% count(subject_label) %>% arrange(desc(n))
+
+# the demo cols we're interested in are the same at both timepoints
+demo_all %>% select(subject_label, de_gender, de_race, de_ethnicity, ds_vs_control_flag) %>% 
+  distinct() %>% count(subject_label) %>% arrange(desc(n))
+
+# there are changes in hh between the 2 timepoints - asked ABCDS team what to do
+health_all %>% select(subject_label, starts_with("hh")) %>% 
+  distinct() %>% count(subject_label) %>% arrange(desc(n))
+
+# controls - how many have DS sibs
+n_distinct(demo_ctl$subject_label)
+n_distinct(control_linkage$ABCDS_ID_SC)
+
+# 10233 10224 10237 10235 are sibs in the linkage sheet who don't have any data
+setdiff(control_linkage$ABCDS_ID_SC, demo_ctl$subject_label)
+```
+
+FOR NOW: limit to Baseline data only
+```{r}
+health_BL <- health_all %>% filter(event_code == "bl")
+demo_BL <- demo_all %>% filter(event_code == "bl")
+
+setdiff(demo_BL$subject_label, health_BL$subject_label)
+# 2 subjects, 23001 and 23002, don't have baseline health histories
+```
+
+##### PARTICIPANT
+
+Study Code = "ABC-DS"
+Participant ID = subject_label
+External ID = subject_label
+Family ID
+Family Type = Other
+Father ID = Not provided
+Mother ID = Not provided
+Family Relationship
+Sex
+Race
+Ethnicity
+Down Syndrome Status
+Outcomes Vital Status
+Age at Last Vital Status
+
+
+Bring in ABCDS_ID_DS from ihq
+Family ID = ABCDS_ID_DS if exists, otherwise = subject_label
+```{r}
+demo_BL_transformed <- demo_BL %>%  
+  left_join(control_linkage %>% select(ABCDS_ID_SC, ABCDS_ID_DS),
+            by = c("subject_label" = "ABCDS_ID_SC")) %>% 
+  relocate(ABCDS_ID_DS, .after = subject_label) %>% 
+  mutate(family_id = ifelse(!is.na(ABCDS_ID_DS), ABCDS_ID_DS, subject_label),
+         .after = subject_label) 
+```
+
+Family Type:
+"Proband-only" if 1 unique patient_id/family_id combo
+"Other" if >1 patient_id/family_id
+** may want to add "Siblings" to Family Type in schema
+
+```{r}
+demo_BL_transformed <- demo_BL_transformed %>% 
+  group_by(family_id) %>% 
+  mutate(n = n(), .after = family_id) %>%
+  mutate(family_type = case_when(n == 1 ~ "Proband-only",
+                                 n == 2 ~ "Other"), .after = n) %>% 
+  ungroup()
+```
+
+Sex, Race, Ethnicity - need to be decoded
+DS Status 
+```{r}
+unique(demo_BL_transformed$de_gender)
+unique(demo_BL_transformed$de_race)
+unique(demo_BL_transformed$de_ethnicity)
+unique(demo_BL_transformed$ds_vs_control_flag)
+
+
+demo_BL_transformed <- demo_BL_transformed %>% 
+  mutate(sex = case_when(de_gender == 1 ~ "Male",
+                         de_gender == 2 ~ "Female"),
+         .after = de_gender) %>% 
+  mutate(race = case_when(de_race == 1 ~ "White",
+                          de_race == 2 ~ "Black or African American",
+                          de_race == 3 ~ "American Indian or Alaska Native",
+                          de_race == 4 ~ "Asian",
+                          de_race == 5 ~ "Native Hawaiian or Other Pacific Islander",
+                          de_race == 6 ~ "Unknown",
+                          str_detect(de_race, "\\|") ~ "More than one race"),
+         .after = de_race) %>% 
+  mutate(ethnicity = case_when(de_ethnicity == 0 ~ "Not Hispanic or Latino",
+                               de_ethnicity == 1 ~ "Hispanic or Latino",
+                               de_ethnicity == 2 ~ "Unknown"),
+         .after = de_ethnicity) %>% 
+  mutate(ds_status = ifelse(ds_vs_control_flag == "DS", "T21", "D21"),
+         .after = ds_vs_control_flag)
+
+```
+
+
+Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
+
+```{r}
+abcds_participant <- demo_BL_transformed %>% 
+  mutate(`Study Code` = "ABC-DS",
+         `Father ID` = "Not provided",
+         `Mother ID` = "Not provided",
+         `Family Relationship` = "Not provided",
+         `Outcomes Vital Status` = "Not provided",
+         `Age at Last Vital Status` = "Not provided") %>% 
+  select(`Study Code`,
+         `Participant ID` = subject_label,
+         `External ID` = subject_label,
+         `Family ID` = family_id,
+         `Family Type` = family_type,
+         `Father ID`,
+         `Mother ID`,
+         `Family Relationship`,
+         Sex = sex,
+         Race = race,
+         Ethnicity = ethnicity,
+         `Down Syndrome Status` = ds_status,
+         `Outcomes Vital Status`,
+         `Age at Last Vital Status`)
+```
+
+```{r}
+write_csv(abcds_participant, here::here("output", "abcds_participant.csv"))
+```
+
+
+##### CONDITION
+
+New table! Columns: 
+Participant ID 
+Condition Description 
+Age at Condition Observation (Days) - blank for now 
+Condition Interpretation - all "Observed" for now (ie. only positive assertions) 
+Condition Source - all "Clinical" 
+HPO Label 
+HPO Code 
+MONDO Label 
+MONDO Code 
+MAXO Label 
+MAXO Code 
+Other Label 
+Other Code
+
+
+Bring in previously annotated phenotypes csv downloaded from ETL Google sheet (https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1006243162)
+
+```{r}
+pheno_lookup_abcds <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
+  filter(cohort == "ABCDS")
+```
+
+Remove columns that won't be harmonized (either for Sept, or ever)
+ie. highlighted in grey or blue in `abcds_dic_harmonizing.xlsx`
+
+Pull in karyotype
+```{r}
+health_BL_transformed <- health_BL %>% 
+  select(-c(site_id, event_code, event_label, hh_cancer, hh_diabetes, hh_done, hh_fracture_5yr, hh_fracture_loc, ends_with("status"), ends_with("treated"), hh_hep_b_carrier, hh_hep_b_immune, hh_hep_b_vaccine, starts_with("hh_hrt_"), hh_menopausal, hh_menopausal_onset, hh_menopausal_status, hh_menstruated, hh_ndreason, update_stamp)) %>% 
+  left_join(karyo_ds %>% select(subject_label, karyotype))
+```
+
+
+Get conditions:
+
+Cols where NA matters:
+- if hh_anemia = 1 AND hh_anemia_type = NA -> "blank AND hh_anemia = 1"
+
+- if hh_chd = 1 AND hh_chd_type = NA ~ hh_chd_type -> "blank AND hh_chd = 1"
+10065
+20441
+21306
+21381
+22768
+
+Make all cols char so I can pivot longer
+
+pivot longer
+
+split cells with | using separate_rows
+```{r}
+# first fix the special cases for hh_anemia and hh_chd
+health_BL_conditions <- health_BL_transformed %>%
+  mutate(hh_chd_type = ifelse(hh_chd == 1 & is.na(hh_chd_type), "blank AND hh_chd = 1", hh_chd_type)) %>% 
+  mutate(hh_anemia_type = ifelse(hh_anemia == 1 & is.na(hh_anemia_type), "blank AND hh_anemia = 1", hh_anemia_type)) %>% 
+  select(-hh_chd, -hh_anemia) %>% 
+  # then pivot longer
+  mutate(across(everything(), as.character)) %>% 
+  pivot_longer(cols = -subject_label,
+               names_to = "condition",
+               values_to = "status") %>% 
+  # keep positive assertions
+  filter(status != "0") %>% 
+  # separate out multi-responses
+  separate_rows(status, sep = "\\|") %>% 
+  # look up annotations
+  left_join(pheno_lookup_abcds, by = c("condition" = "source_column", "status" = "source_column_value"))
+```
+
+
+Create empty/all same value columns
+Select columns in order of DCA template
+```{r}
+abcds_condition <- health_BL_conditions %>% 
+  mutate(`Study Code` = "ABC-DS",
+         `Age at Condition Observation` = "Not provided",
+         `Condition Interpretation` = "Observed",
+         `Condition Source` = "Clinical") %>% 
+  select(`Study Code`,
+         `Participant ID` = subject_label,
+         `Condition Description` = display_text,
+         `Age at Condition Observation`,
+         `Condition Interpretation`,
+         `Condition Source`,
+         `HPO Label` = HPO_label,
+         `HPO Code` = HPO_code,
+         `MONDO Label` = MONDO_label,
+         `MONDO Code` = MONDO_code,
+         `MAXO Label` = MAXO_label,
+         `MAXO Code` = MAXO_code,
+         `Other Label` = Other_label,
+         `Other Code` = Other_code)
+```
+
+```{r}
+write_csv(abcds_condition, here::here("output", "abcds_condition.csv"))
+```
