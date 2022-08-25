@@ -51,6 +51,7 @@ dsc_demo_transformed <- dsc_demographic %>%
   mutate(family_id = ifelse(!is.na(parent_id), parent_id, patient_id),
          .after = parent_id) 
 ```
+Other cols that need to be transformed: 
 
 Family Type:
 "Proband-only" if 1 unique patient_id/family_id combo
@@ -65,8 +66,6 @@ dsc_demo_transformed <- dsc_demo_transformed %>%
                                  n == 2 ~ "Other"), .after = n) %>% 
   ungroup()
 ```
-
-Sex = as is
 
 Race:
 - A couple of participants (4068 & 6181) chose all the options including Unknown -> assume they are "more than one race"
@@ -112,11 +111,7 @@ dsc_demo_transformed <- dsc_demo_transformed %>%
 Down Syndrome Status - all participants have DS
 
 Outcomes Vital Status - it's in IHQ but leave out for now until filtering rules are determined
-```{r}
 
-unique(dsc_ihq$vital_status)
-
-```
 
 
 Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
@@ -155,7 +150,7 @@ write_csv(dsc_participant, here::here("output", "dsc_participant.csv"))
 
 ##### CONDITION
 
-New table! Columns: 
+Columns: 
 Participant ID 
 Condition Description 
 Age at Condition Observation (Days) - blank for now 
@@ -174,19 +169,75 @@ Other Code
 Bring in previously annotated phenotypes csv downloaded from ETL Google sheet (https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1006243162)
 
 ```{r}
-pheno_lookup_htp <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
-  filter(cohort == "HTP")
+pheno_lookup_dsc <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
+  filter(cohort == "DSC")
 ```
 
+Special cols (ie. NOT 1)
+leukemia_ever_diagnosis
+dementia_ad_cognitive_ever_diagnosis
+dementia_ad_cognitive_ever_diagnosis
+dementia_ad_cognitive_ever_diagnosis
+celiac_ever_diagnosis -> gi_condition_celiac
+chd_ever_diagnosis -> chd_condition_
+skeletal_ever_diagnosis -> skeletal_condition_
+thyroid_ever_diagnosis -> thyroid_condition_
+seizures_epilepsy_ever_diagnosis
+gi_ever_diagnosis -> gi_condition_
+sleep_ever_diagnosis -> sleep_condition_
+covid19_ever_diagnosis
+diabetes_ever_diagnosis
+eye_exam_ever
+hearing_testing_ever
+ds_specific_diagnosis
 
-Test: confirm that every set of visits for a participant has the same phenotype values (i.e. 1)
+Check CHD cols
+
+*** WAITING until I know how to filter the data
 ```{r}
-htp_clinical_transformed %>% 
-  select(-`Study Code`, -(LabID:MRAbstractionStatus)) %>% 
-  group_by(`External ID`) %>% 
-  distinct() %>% 
-  count() %>% 
-  arrange(desc(n))
+# patients where chd_ever = Yes but doesn't have other chd_conditions: 17
+# https://stackoverflow.com/a/62162600
+dsc_ihq %>% 
+  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>% 
+  rowwise() %>% 
+  filter(chd_ever_diagnosis == "Yes" & 
+           all(is.na(c_across(starts_with("chd_condition")))))
+
+# patients where chd_ever = No but has other chd_conditions? 
+dsc_ihq %>% 
+  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>% 
+  rowwise() %>% 
+  filter(chd_ever_diagnosis == "No" & 
+           any(!is.na(c_across(starts_with("chd_condition")))))
+
+# or patients where chd_ever = Yes but chd_condition_none = No
+dsc_ihq %>% 
+  filter(chd_ever_diagnosis == "Yes" & chd_condition_none == 1) %>% 
+  pull(patient_id)
+
+```
+
+Check GI cols
+```{r}
+# are there any patients where gi_ever = Yes but doesn't have other gi_conditions? 37
+dsc_ihq %>% 
+  select(patient_id, gi_ever_diagnosis, starts_with("gi_condition_"), -gi_condition_none) %>% 
+  rowwise() %>% 
+  filter(gi_ever_diagnosis == "Yes" & 
+           all(is.na(c_across(starts_with("gi_condition")))))
+
+# or patients where chd_ever = No but has other chd_conditions? 
+dsc_ihq %>% 
+  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>% 
+  rowwise() %>% 
+  filter(chd_ever_diagnosis == "No" & 
+           any(!is.na(c_across(starts_with("chd_condition")))))
+
+# or patients where chd_ever = Yes but chd_condition_none = No
+dsc_ihq %>% 
+  filter(chd_ever_diagnosis == "Yes" & chd_condition_none == 1) %>% 
+  pull(patient_id)
+
 ```
 
 
