@@ -170,7 +170,8 @@ htp_condition <- htp_ds_diagnoses %>%
          `Age at Condition Observation` = "Not provided",
          `Condition Interpretation` = "Observed",
          `Condition Source` = "Clinical") %>% 
-  select(`Participant ID`,
+  select(`Study Code`,
+         `Participant ID`,
          `Condition Description` = display_text,
          `Age at Condition Observation`,
          `Condition Interpretation`,
