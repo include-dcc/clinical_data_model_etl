@@ -15,17 +15,23 @@ synLogin()
 
 Read in data
 ```{r}
-control_linkage <- read_xlsx(synGet("syn34654889")$path)
-health_ctl <- read_csv(synGet("syn33401148")$path)
-health_ds <- read_csv(synGet("syn33401163")$path)
-karyo_ds <- read_csv(synGet("syn33401175")$path)
+# control & DS demographics
 demo_ctl <- read_csv(synGet("syn33401283")$path)
 demo_ds <- read_csv(synGet("syn33401291")$path)
+
+# control & DS health histories
+health_ctl <- read_csv(synGet("syn33401148")$path)
+health_ds <- read_csv(synGet("syn33401163")$path)
+
+# DS karyotypes
+karyo_ds <- read_csv(synGet("syn33401175")$path)
+
+# link between controls & DS siblings
+control_linkage <- read_xlsx(synGet("syn34654889")$path)
 ```
 
 
-Combine DS and control tables
-
+Combine DS and control subjects
 ```{r}
 health_all <- rbind(health_ds, health_ctl)
 demo_all <- rbind(demo_ds, demo_ctl)
@@ -47,7 +53,7 @@ demo_all %>% count(subject_label) %>% arrange(desc(n))
 demo_all %>% select(subject_label, de_gender, de_race, de_ethnicity, ds_vs_control_flag) %>% 
   distinct() %>% count(subject_label) %>% arrange(desc(n))
 
-# there are changes in hh between the 2 timepoints - asked ABCDS team what to do
+# there are changes in hh between the 2 timepoints - asked ABCDS team what to do (FOR NOW - use baseline data only)
 health_all %>% select(subject_label, starts_with("hh")) %>% 
   distinct() %>% count(subject_label) %>% arrange(desc(n))
 
@@ -86,7 +92,7 @@ Outcomes Vital Status
 Age at Last Vital Status
 
 
-Bring in ABCDS_ID_DS from ihq
+Bring in ABCDS_ID_DS from linkage table
 Family ID = ABCDS_ID_DS if exists, otherwise = subject_label
 ```{r}
 demo_BL_transformed <- demo_BL %>%  
@@ -97,10 +103,15 @@ demo_BL_transformed <- demo_BL %>%
          .after = subject_label) 
 ```
 
+Other cols that need to be transformed:
+
 Family Type:
 "Proband-only" if 1 unique patient_id/family_id combo
 "Other" if >1 patient_id/family_id
 ** may want to add "Siblings" to Family Type in schema
+
+Sex, Race, Ethnicity - need to be decoded
+DS Status 
 
 ```{r}
 demo_BL_transformed <- demo_BL_transformed %>% 
@@ -108,19 +119,7 @@ demo_BL_transformed <- demo_BL_transformed %>%
   mutate(n = n(), .after = family_id) %>%
   mutate(family_type = case_when(n == 1 ~ "Proband-only",
                                  n == 2 ~ "Other"), .after = n) %>% 
-  ungroup()
-```
-
-Sex, Race, Ethnicity - need to be decoded
-DS Status 
-```{r}
-unique(demo_BL_transformed$de_gender)
-unique(demo_BL_transformed$de_race)
-unique(demo_BL_transformed$de_ethnicity)
-unique(demo_BL_transformed$ds_vs_control_flag)
-
-
-demo_BL_transformed <- demo_BL_transformed %>% 
+  ungroup() %>% 
   mutate(sex = case_when(de_gender == 1 ~ "Male",
                          de_gender == 2 ~ "Female"),
          .after = de_gender) %>% 
@@ -175,7 +174,7 @@ write_csv(abcds_participant, here::here("output", "abcds_participant.csv"))
 
 ##### CONDITION
 
-New table! Columns: 
+Columns: 
 Participant ID 
 Condition Description 
 Age at Condition Observation (Days) - blank for now 
@@ -207,7 +206,6 @@ health_BL_transformed <- health_BL %>%
   select(-c(site_id, event_code, event_label, hh_cancer, hh_diabetes, hh_done, hh_fracture_5yr, hh_fracture_loc, ends_with("status"), ends_with("treated"), hh_hep_b_carrier, hh_hep_b_immune, hh_hep_b_vaccine, starts_with("hh_hrt_"), hh_menopausal, hh_menopausal_onset, hh_menopausal_status, hh_menstruated, hh_ndreason, update_stamp)) %>% 
   left_join(karyo_ds %>% select(subject_label, karyotype))
 ```
-
 
 Get conditions:
 
