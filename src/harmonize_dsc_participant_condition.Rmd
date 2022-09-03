@@ -14,43 +14,64 @@ synLogin()
 ```
 
 Read in data
+Looks like read_csv converts the Acknowledgments rows to NA -> delete below
 ```{r}
 dsc_demographic <- read_csv(synGet("syn26445516")$path)
 dsc_ihq <- read_csv(synGet("syn26445517")$path)
 ```
 
-data checks
+##### DATA CLEANUP & CHECKS
+
+From Dawn, 2022-08-29:
+- We have updated the machine-readable headers
+- Please use the IHQ as our main 'source of truth' for who you have data for (all de-identified of course, but the demographics file contains a few - that are not listed in the IHQ file) - we had to remove 40 (ish) people for having edited answers that didn't get recorded correctly
+- We removed PID 12459 as we suspect they have an erroneous birthdate
+- This export will likely differ from the last one as we ran the export from most recent, completed IHQs only, last time we provided 'historical' sessions as well. This should resolve your data curation questions from our last meeting
+
+Also:
+Delete duplicate demographics row for pt 5458
+Delete pt 13061 - has IHQ but no demographics
+Delete 59 pts with demographics but no IHQ
+
 ```{r}
-# both sets have 3347 unique patients
-n_distinct(dsc_demographic$patient_id)
-n_distinct(dsc_ihq$patient_id)
+dsc_demographic <- dsc_demographic %>% 
+  filter(!is.na(patient_id)) %>% #del Acknowledgments
+  distinct() #del 5458
 
-# why are there 3348 rows in dsc_demo?
-# pt 5458 has 2 identical rows in demo and ihq 
-dsc_demographic %>% group_by(patient_id) %>% count() %>% arrange(desc(n))
-dsc_ihq %>% group_by(session_id) %>% count() %>% arrange(desc(n))
+dsc_ihq <- dsc_ihq %>% 
+  filter(!is.na(patient_id)) %>% #del Acknowledgments
+  filter(patient_id != 13061) #del 13061
 
-# confirm identical
-dsc_demographic %>% filter(patient_id == 5458) %>% distinct()
-dsc_ihq %>% filter(session_id == 6878) %>% distinct()
+n_distinct(dsc_demographic$patient_id) #3432
+n_distinct(dsc_ihq$patient_id) #3373
 
-# take distinct rows from the 2 datasets
-dsc_demographic <- dsc_demographic %>% distinct()
-dsc_ihq <- dsc_ihq %>% distinct()
+# all pts with ihq have demographics
+setdiff(dsc_ihq$patient_id, dsc_demographic$patient_id)
 
+# 59 pts with demographics do not have ihq -> delete for now
+no_demog <- setdiff(dsc_demographic$patient_id, dsc_ihq$patient_id)
+
+dsc_demo_transformed <- dsc_demographic %>% 
+  filter(!(patient_id %in% no_demog))
+
+setdiff(dsc_demo_transformed$patient_id, dsc_ihq$patient_id)
 ```
+
+
 
 ##### PARTICIPANT
 
 Family ID = parent_id if exists, otherwise = patient_id
 Bring in parent_id from ihq
 ```{r}
-dsc_demo_transformed <- dsc_demographic %>% 
+dsc_demo_transformed <- dsc_demo_transformed %>% 
   left_join(dsc_ihq %>% select(patient_id, parent_id) %>% distinct()) %>% 
   relocate(parent_id, .after = patient_id) %>% 
   mutate(family_id = ifelse(!is.na(parent_id), parent_id, patient_id),
          .after = parent_id) 
 ```
+
+
 Other cols that need to be transformed: 
 
 Family Type:
@@ -110,8 +131,32 @@ dsc_demo_transformed <- dsc_demo_transformed %>%
 
 Down Syndrome Status - all participants have DS
 
-Outcomes Vital Status - it's in IHQ but leave out for now until filtering rules are determined
+Outcomes & Age at Vital Status - leave out for now due to below inconsistencies
+```{r}
+# 4 patients have vital_status = Yes (Alive) but deceased_year is not NA
+# 6725 = survey_time 2015
+# 6841 = 2016
+# 11358 = 2019
+# 11823 = 2020
+dsc_demo_transformed %>% 
+  left_join(dsc_ihq %>% select(patient_id, vital_status, survey_time)) %>% 
+  select(patient_id, deceased_year, vital_status, survey_time) %>% 
+  filter(vital_status == "Yes" & !is.na(deceased_year))
 
+# 5 patients are dead but no deceased_year
+dsc_demo_transformed %>% 
+  left_join(dsc_ihq %>% select(patient_id, vital_status)) %>% 
+  select(patient_id, deceased_year, vital_status) %>% 
+  filter(vital_status == "No")
+
+# 1 pt (3981) has vital_status NA but has deceased_year
+dsc_demo_transformed %>% 
+  left_join(dsc_ihq %>% select(patient_id, vital_status, survey_time)) %>% 
+  select(patient_id, deceased_year, vital_status, survey_time) %>% 
+  filter(!is.na(deceased_year) | vital_status == "No") %>% 
+  arrange(vital_status) 
+
+```
 
 
 Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
@@ -125,7 +170,7 @@ dsc_participant <- dsc_demo_transformed %>%
          `Mother ID` = "Not provided",
          `Family Relationship` = "Not provided",
          `Down Syndrome Status` = "T21",
-         `Outcomes Vital Status` = "TBD",
+         `Outcomes Vital Status` = "Not provided",
          `Age at Last Vital Status` = "Not provided") %>% 
   select(`Study Code`,
          `Participant ID` = patient_id,
@@ -191,9 +236,8 @@ eye_exam_ever
 hearing_testing_ever
 ds_specific_diagnosis
 
-Check CHD cols
 
-*** WAITING until I know how to filter the data
+Data checks:
 ```{r}
 # patients where chd_ever = Yes but doesn't have other chd_conditions: 17
 # https://stackoverflow.com/a/62162600
@@ -241,52 +285,116 @@ dsc_ihq %>%
 ```
 
 
-Pull conditions from clinical data
-** SPECIAL CASE: Delete column "Anatomical Anomaly" and all "Unsure" cols, per Angela
-Look up annotations
+CHD cols - just choose any positive assertion:
+- chd_ever_diagnosis = Yes and no other selections, or chd_condition_unsure -> CHD
+- chd_ever_diagnosis = Yes and chd_condition_none = 1 -> still CHD
+- Otherwise go with the other selections (chd_)
+- leave out chd_condition_unsure
+
+GI cols
+- gi_ever_diagnosis = Yes and no other selections, or gi_condition_unsure -> GI
+- gi_ever_diagnosis = Yes and gi_condition_none = 1 -> still GI
+- Otherwise go with the other selections (gi_condition_)
+- leave out gi_condition_unsure
+- celiac_ever_diagnosis = Yes OR gi_condition_celiac = 1 -> choose the positive assertion, ignore negative (will need to distinct() if both)
+
+Sleep cols
+- sleep_ever_diagnosis = Yes and no other selections, or sleep_condition_unsure -> sleep
+- sleep_ever_diagnosis = Yes and sleep_condition_none = 1 -> still sleep
+- Otherwise go with the other selections (sleep_)
+- leave out sleep_condition_unsure
+
+skeletal cols
+- skeletal_ever_diagnosis = Yes and no other selections, or skeletal_condition_unsure -> skeletal
+- skeletal_ever_diagnosis = Yes and skeletal_condition_none = 1 -> still skeletal
+- Otherwise go with the other selections (skeletal_)
+- leave out skeletal_condition_unsure
+
+thyroid cols
+- thyroid_ever_diagnosis = Yes and no other selections, or thyroid_condition_unsure -> thyroid
+- thyroid_ever_diagnosis = Yes and thyroid_condition_none = 1 -> still thyroid
+- Otherwise go with the other selections (thyroid_)
+- leave out thyroid_condition_unsure
+
+
+Pull conditions from ihq
 ```{r}
-htp_conditions_subset <- htp_clinical_transformed %>% 
-  select(-(LabID:MRAbstractionStatus), -`Anatomical anomaly`, -starts_with("Unsure")) %>%
-  group_by(`External ID`) %>% 
-  distinct() %>% 
+dsc_conditions_subset <- dsc_ihq %>% 
+  select(patient_id, ds_specific_diagnosis,
+         starts_with(c("chd", "cardiac", "gi", "skin", "seizures",
+                       "neurologic", "sleep", "skeletal", "leukemia",
+                       "cancer", "covid19", "thyroid", "diabetes", "celiac",
+                       "metabolic", "hearing", "eye", "mental", "learning", "dementia"))) %>% 
+  mutate(across(everything(), as.character)) %>% 
+  pivot_longer(cols = -patient_id,
+               names_to = "source_column",
+               values_to = "status") %>% 
+  filter(!is.na(status) & status != "No") %>% # delete blanks and _ever = No
+  left_join(pheno_lookup_dsc, by = c("source_column", "status" = "source_column_value")) %>% 
+  filter(!is.na(display_text))  # remove conditions like _none and _unsure that don't have annotations
+```
+
+Deal with _ever columns:
+
+If a patient has ever_diagnosis AND _condition starting with the same -> delete ever, keep the more specific condition
+```{r}
+keep_specific_conditions <- dsc_conditions_subset %>% 
+  filter(str_detect(source_column, "^chd|gi_|sleep|skeletal|thyroid") & !str_detect(source_column, "surgery")) %>% 
+  mutate(prefix = str_extract(source_column, "^[^_]+(?=_)"), .before = source_column) %>% 
+  group_by(patient_id, prefix) %>% # group by patient and condition category
+  mutate(n = n(), .before = prefix) %>% 
+  arrange(n) %>% 
+  filter(n > 1) %>% # filter groups that only have 1 condition per category (could be _ever or something else) 
+  filter(any(status == "Yes")) %>% # get only groups that include _ever
   ungroup() %>% 
-  pivot_longer(cols = c(-`Study Code`, -`External ID`), 
-               names_to = "Source Text",
-               values_to = "Status") %>%
-  filter(Status == TRUE) %>% 
-  left_join(pheno_lookup_htp, by = c("Source Text" = "source_column")) %>% 
-  select(-cohort, -source_column_value)
+  filter(status == 1) # remove evers, keep specific condition
 
+#get back the groups with multiple conditions but no ever
+keep_multiple_without_ever <- dsc_conditions_subset %>% 
+  filter(str_detect(source_column, "^chd|gi_|sleep|skeletal|thyroid") & !str_detect(source_column, "surgery")) %>% 
+  mutate(prefix = str_extract(source_column, "^[^_]+(?=_)"), .before = source_column) %>% 
+  group_by(patient_id, prefix) %>% # group by patient and condition category
+  mutate(n = n(), .before = prefix) %>% 
+  arrange(n) %>% 
+  filter(n > 1) %>% # filter groups that only have 1 condition per category (could be _ever or something else) 
+  filter(all(status != "Yes")) %>% # get only groups that don't have _ever
+  ungroup()
+
+#get back the groups with 1 condition per category
+keep_single_conditions <- dsc_conditions_subset %>% 
+  filter(str_detect(source_column, "^chd|gi_|sleep|skeletal|thyroid") & !str_detect(source_column, "surgery")) %>% 
+  mutate(prefix = str_extract(source_column, "^[^_]+(?=_)"), .before = source_column) %>% 
+  group_by(patient_id, prefix) %>% # group by patient and condition category
+  mutate(n = n(), .before = prefix) %>% 
+  arrange(n) %>% 
+  filter(n == 1) %>% 
+  ungroup()
+
+filtered_ever_conditions <- rbind(keep_specific_conditions, keep_multiple_without_ever, keep_single_conditions) %>% 
+  select(-n, -prefix)
+
+# check for duplicate rows
+dsc_conditions_subset %>% 
+  filter(!str_detect(source_column, "^chd|gi_ever|gi_condition|sleep|skeletal|thyroid")) %>% 
+  rbind(filtered_ever_conditions) %>% 
+  janitor::get_dupes() 
+
+# add these back to the rest of the conditions
+dsc_conditions_final <- dsc_conditions_subset %>% 
+  filter(!str_detect(source_column, "^chd|gi_ever|gi_condition|sleep|skeletal|thyroid")) %>% 
+  rbind(filtered_ever_conditions)
 ```
 
-Add DS Diagnosis (T21 participants only)
-** SPECIAL CASE: a few participants are T21 but have DS Diagnosis `NA` due to an error - per Angela, change these to "Unsure"
-Look up annotations
 
-```{r}
-htp_ds_diagnoses <- htp_clinical_transformed %>% 
-  mutate(OfficialDSDiagnosis = ifelse(LabID %in% c("HTP0552A", "HTP0562A", "HTP0568A", "HTP0580A", "HTP0634A", "HTP0639A", "HTP0697A"), "Unsure", OfficialDSDiagnosis)) %>% 
-  filter(`Down Syndrome Status` == "T21") %>% 
-  select(`Study Code`, `External ID`,
-         `Source Text` = OfficialDSDiagnosis) %>% 
-  mutate(Status = TRUE) %>% 
-  distinct() %>% 
-  left_join(pheno_lookup_htp, by = c("Source Text" = "source_column_value")) %>% 
-  select(-cohort, -source_column)
-```
-
-
-Combine conditions + ds_diagnoses
 Create empty/all same value columns
 Select columns in order of DCA template
 ```{r}
-htp_condition <- htp_ds_diagnoses %>% 
-  rbind(htp_conditions_subset) %>% 
-  arrange(`External ID`) %>% 
-  mutate(`Participant ID` = `External ID`,
+dsc_condition <- dsc_conditions_final %>% 
+  mutate(`Study Code` = "DSC",
+         `Participant ID` = patient_id,
          `Age at Condition Observation` = "Not provided",
          `Condition Interpretation` = "Observed",
-         `Condition Source` = "Clinical") %>% 
+         `Condition Source` = "Self-reported") %>% 
   select(`Study Code`,
          `Participant ID`,
          `Condition Description` = display_text,
@@ -304,5 +412,5 @@ htp_condition <- htp_ds_diagnoses %>%
 ```
 
 ```{r}
-write_csv(htp_condition, here::here("output", "htp_condition.csv"))
+write_csv(dsc_condition, here::here("output", "dsc_condition.csv"))
 ```

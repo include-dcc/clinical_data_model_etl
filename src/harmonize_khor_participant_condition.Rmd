@@ -71,7 +71,7 @@ Final table:
 
 ```{r}
 khor_participant <- khor_transformed %>% 
-  mutate(`Study Code` = "DS-Immune",
+  mutate(`Study Code` = "BRI-DSR",
          `Participant ID` = `External ID`,
          `Family ID` = "Not provided",
          `Family Type` = "Proband-only",
@@ -129,12 +129,12 @@ pheno_lookup_khor <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>%
   filter(cohort == "Khor")
 ```
 
-
+Add column "DS_Diagnosis" = Down syndrome
 Pull conditions from clinical data
-** SPECIAL CASE: Delete column "Anatomical Anomaly" and all "Unsure" cols, per Angela
 Look up annotations
 ```{r}
 khor_conditions_subset <- khor_transformed %>% 
+  mutate(ds_diagnosis = "Down syndrome") %>% 
   select(-c(2:6)) %>% 
   pivot_longer(cols = c(-`External ID`), 
                names_to = "Source Text",
@@ -147,7 +147,7 @@ Create empty/all same value columns
 Select columns in order of DCA template
 ```{r}
 khor_condition <- khor_conditions_subset %>% 
-  mutate(`Study Code` = "DS-Immune",
+  mutate(`Study Code` = "BRI-DSR",
          `Age at Condition Observation` = "Not provided",
          `Condition Interpretation` = "Observed",
          `Condition Source` = "Not provided") %>% 
