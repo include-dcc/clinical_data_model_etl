@@ -1,0 +1,110 @@
+---
+title: "CDE basic stats"
+author: "Pierrette Lo"
+date: '2022-10-13'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(DT)
+
+mcd_original <- read_csv(here::here("data", "mcd_original.csv"))
+
+cde_tags <- read_csv(here::here("data", "cde_tags.csv"))%>% 
+  # get CDE categories
+  mutate(cde_category = str_extract(`Variable / Field Name`, "^[:alpha:]*(?=_)"), .before = `Used?`)
+
+pheno_codes_cde <- read_csv(here::here("data", "pheno_codes_v2_cde.csv")) %>% 
+  mutate(cde_category = str_extract(CDE_tag, "^[:alpha:]*(?=_)"), .after = CDE_tag)
+```
+
+<br>
+
+How many CDEs in the [original worksheet](https://docs.google.com/spreadsheets/d/1gUiFUAke5vz-JId4mExoYxwx3X0pr2TdbTlMvtZtTdo/edit#gid=902968406)?
+```{r, echo = FALSE}
+n_distinct(mcd_original$`Variable / Field Name`)
+```
+
+Number of distinct [CDEs used for tagging](https://docs.google.com/spreadsheets/d/1gUiFUAke5vz-JId4mExoYxwx3X0pr2TdbTlMvtZtTdo/edit#gid=308350820). 
+
+The original CDE list linked above was narrowed down because there were many redundant fields, as the CDEs were taken directly from the REDCap survey. E.g. `gi_other_gi_status`, `gi_any`, `gi_conditions`, and `gi_other_specify` are similar, so only `gi_other_gi_status` was used for tagging.
+```{r, echo = FALSE}
+n_distinct(cde_tags$`Variable / Field Name`)
+```
+
+<br>
+
+### CDE tags used at least once in data?
+```{r, echo = FALSE}
+cde_tags %>% 
+  count(`Used?`) %>% 
+  ggplot(aes(y = fct_inorder(`Used?`), x = n)) +
+  geom_col() +
+  xlab(NULL) +
+  ylab(NULL)
+```
+
+<br>
+
+### Browse the 63 CDEs that weren't used (yet)
+```{r, echo = FALSE}
+cde_tags %>% 
+  filter(`Used?` == "N") %>% 
+  select(`Variable / Field Name`, cde_category) %>% 
+  datatable()
+```
+
+<br>
+
+### Breakdown of CDE categories in the [actual data](https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1006243162)
+```{r, echo = FALSE}
+pheno_codes_cde %>% 
+  count(cde_category) %>% 
+  ggplot(aes(y = fct_reorder(cde_category, n), x = n)) +
+  geom_col() +
+  xlab(NULL) +
+  ylab(NULL) +
+  ggtitle("NA = no relevant CDE")
+```
+
+<br>
+
+### Conditions without matching CDEs, and suggested categories
+```{r, echo = FALSE}
+pheno_codes_cde %>% 
+  filter(is.na(cde_category)) %>% 
+  select(cohort, display_text, CDE_tag) %>% 
+  arrange(desc(CDE_tag)) %>% 
+  datatable()
+```
+
+
+<br>
+
+### Count of conditions in the "Other" buckets
+
+Some of these catch-all buckets are quite large (e.g. `cardiac_other_chd`, `gi_other`) - consider adding more specific CDEs for recurrently observed conditions
+```{r, echo = FALSE}
+pheno_codes_cde %>% 
+  filter(str_detect(CDE_tag, "other")) %>% 
+  count(CDE_tag) %>% 
+  ggplot(aes(y = fct_reorder(CDE_tag, n), x = n)) +
+  geom_col() +
+  xlab(NULL) +
+  ylab(NULL) 
+```
+
+<br>
+
+### Browse conditions in the "Other" buckets
+```{r, echo = FALSE}
+pheno_codes_cde %>% 
+  filter(str_detect(CDE_tag, "other")) %>% 
+  select(cohort, display_text, CDE_tag, cde_category) %>% 
+  arrange(cde_category) %>% 
+  datatable()
+```
+
