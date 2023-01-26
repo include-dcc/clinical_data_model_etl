@@ -1,0 +1,67 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(kableExtra)
+library(gt)
+```
+
+```{r}
+pheno_codes_v2 <- read_csv("data/pheno_codes_v2.csv")
+
+
+```
+
+```{r}
+pheno_codes_v2 %>% 
+  count(HPO_code, HPO_label) %>% 
+  drop_na() %>% 
+  arrange(desc(n)) %>% 
+  head(10) %>% 
+  select(-n) %>% 
+  gt()
+```
+
+```{r}
+pheno_codes_v2 %>% 
+  count(MONDO_code, MONDO_label) %>% 
+  drop_na() %>% 
+  arrange(desc(n)) %>% 
+  head(13) %>%
+  filter(!str_detect(MONDO_label, "Down|trisomy")) %>% 
+  select(-n) %>% 
+  gt()
+```
+
+```{r}
+htp_condition <- read_csv(here::here("output", "htp_condition.csv"))
+#nexus_condition <- read_csv(here::here("output", "nexus_condition.csv"))
+abcds_condition <- read_csv(here::here("output", "abcds_condition.csv"))
+khor_condition <- read_csv(here::here("output", "khor_condition.csv"))
+dsc_condition <- read_csv(here::here("output", "dsc_condition.csv"))
+
+all_conditions <- rbind(abcds_condition, khor_condition, dsc_condition, htp_condition)
+```
+
+
+```{r}
+all_conditions %>% 
+  count(`HPO Code`, `HPO Label`) %>% 
+  drop_na() %>% 
+  arrange(desc(n)) %>% 
+  head(10) %>% 
+  select(-n)
+```
+
+```{r}
+all_conditions %>% 
+  count(`MONDO Code`, `MONDO Label`) %>% 
+  drop_na() %>% 
+  arrange(desc(n)) %>% 
+  head(11) %>% 
+  filter(!str_detect(`MONDO Label`, "Down|trisomy")) %>% 
+  select(-n)
+```

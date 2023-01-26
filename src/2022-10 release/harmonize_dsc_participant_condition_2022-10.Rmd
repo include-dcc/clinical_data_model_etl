@@ -383,6 +383,8 @@ dsc_conditions_subset %>%
 dsc_conditions_final <- dsc_conditions_subset %>% 
   filter(!str_detect(source_column, "^chd|gi_ever|gi_condition|sleep|skeletal|thyroid")) %>% 
   rbind(filtered_ever_conditions)
+
+dsc_conditions_final %>% arrange(patient_id)
 ```
 
 

@@ -1,0 +1,96 @@
+---
+title: "expansion cohort summary"
+author: "Pierrette Lo"
+date: "2/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(scales)
+library(patchwork)
+library(UpSetR)
+library(googlesheets4)
+library(googledrive)
+
+drive_auth(email = "pierrette.lo@sagebase.org")
+gs4_auth(token = drive_token())
+```
+
+## get data directly from google sheets
+
+Don't forget to check the permission in the browser
+If you forgot, use drive_auth() and choose 0 to get a new token
+https://stackoverflow.com/a/68816877
+
+```{r}
+data_types <- drive_get("https://docs.google.com/spreadsheets/d/1wNtmceBQwZu71gmQ1Z48yqNdV0zNu9WfZJ5IAhoRnMw/edit#gid=755604938") %>% 
+  read_sheet("data_types")
+```
+# data_type_short
+
+```{r}
+p2 <- data_types %>% 
+  count(data_type_short) %>% 
+  ggplot(aes(y = fct_reorder(data_type_short, n), x = n)) +
+  geom_col() +
+  geom_text(aes(label = n),
+            hjust = 1, nudge_x = -0.25,
+            color = "white") +
+  scale_y_discrete(labels = label_wrap(50)) +
+  scale_x_continuous(breaks = pretty_breaks(n = 14)) +
+  ylab(NULL) +
+  xlab("Number of cohorts") +
+  ggtitle("Summary of data types across INCLUDE Pilot, X01, and Expansion cohorts") +
+  theme_minimal()
+
+p2 + theme(plot.title.position = "plot")
+
+ggsave(here::here("output", paste0("data_types_summary_", Sys.Date(), ".jpg")),
+       width = 7,
+       height = 5)
+```
+
+
+<!-- # data_type (long) -->
+
+<!-- ```{r} -->
+<!-- p <- data_types %>%  -->
+<!--   count(data_type) %>%  -->
+<!--   ggplot(aes(y = fct_reorder(data_type, n), x = n)) + -->
+<!--   geom_col() + -->
+<!--   geom_text(aes(label = n), -->
+<!--             hjust = 1, nudge_x = -0.25, -->
+<!--             color = "white") + -->
+<!--   scale_y_discrete(labels = label_wrap(50)) + -->
+<!--   scale_x_continuous(breaks = pretty_breaks(n = 14)) + -->
+<!--   ylab(NULL) + -->
+<!--   xlab("Number of cohorts") + -->
+<!--   ggtitle("Summary of data types across INCLUDE Pilot, X01, and Expansion cohorts") + -->
+<!--   theme_minimal() -->
+
+<!-- p + theme(plot.title.position = "plot") -->
+
+<!-- ggsave("output/data_types_summary.jpg", -->
+<!--        width = 7, -->
+<!--        height = 5) -->
+<!-- ``` -->
+
+
+## upset plot (not very useful here)
+
+group df and convert into named list: https://stackoverflow.com/a/52066427
+
+```{r}
+data_types_list <- data_types %>% 
+  select(-data_type) %>% 
+  split(.$data_type_short) %>% 
+  map(pull, cohort)
+
+upset(fromList(data_types_list), order.by = "freq", nsets = 13)
+```
+
+
+
+

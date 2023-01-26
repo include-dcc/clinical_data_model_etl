@@ -1,0 +1,100 @@
+---
+title: "Check X01 seq IDs vs clinical data"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+
+Hakon data tracker: https://data-tracker.kidsfirstdrc.org/study/SD_E8J42ACH/documents
+
+Hakon sample manifest is same as clinical data. One each for WGS and RNA samples
+
+```{r}
+hakon_rna_clinical <- read_xlsx(here::here("data", "hakon_rna.xlsx"))
+
+hakon_rna_seq <- read_delim(here::here("data", "FV_2QD0Y620_hakon-include-rna.tsv"), delim = "\t") %>% 
+  # get sample IDs from `entity:sample_id`
+  mutate(`Participant ID` = str_extract(`entity:sample_id`, "KFDS[:digit:]*"),
+         .after = `entity:sample_id`)
+
+hakon_wgs_clinical <- read_xlsx(here::here("data", "hakon_clinical_data_v8.xlsx"))
+  
+hakon_wgs_seq <- read_delim(here::here("data", "FV_249MK9XS_hakon-include-wgs.tsv"), delim = "\t")
+  
+```
+
+
+```{r}
+n_distinct(hakon_rna_clinical$`Participant ID`) #384
+n_distinct(hakon_rna_seq$`Participant ID`) #379
+n_distinct(hakon_wgs_clinical$`Participant ID`) #1140
+n_distinct(hakon_wgs_seq$collaborator_sample_id) #1134
+```
+
+```{r}
+# rna
+setdiff(hakon_rna_clinical$`Participant ID`, hakon_rna_seq$`Participant ID`) #5 samples have clin but no seq
+setdiff(hakon_rna_seq$`Participant ID`, hakon_rna_clinical$`Participant ID`)
+
+# wgs
+setdiff(hakon_wgs_clinical$`Participant ID`, hakon_wgs_seq$collaborator_participant_id) #6 samples have clin but no wgs
+setdiff(hakon_wgs_seq$collaborator_participant_id, hakon_wgs_clinical$`Participant ID`)
+
+# more checks
+hakon_rna_seq %>% 
+  left_join(hakon_rna_clinical) %>% 
+  view()
+
+hakon_wgs_seq %>% 
+  left_join(hakon_wgs_clinical, by = c("collaborator_participant_id" = "Participant ID")) %>% 
+  view()
+
+hakon_wgs_seq %>% 
+  filter(collaborator_participant_id %in% hakon_wgs_clinical$`Participant ID`) %>% 
+  nrow() #1134
+
+hakon_rna_seq %>% 
+  filter(`Participant ID` %in% hakon_rna_clinical$`Participant ID`) %>% 
+  nrow() #379
+```
+
+
+DeSmith data tracker: https://data-tracker.kidsfirstdrc.org/study/SD_8KSDWKHK/documents
+
+```{r}
+desmith_sample_manifest <- read_csv(here::here("data", "FV_3NPCJ3NC_ODSCS_desmith_SampleManifest_Dec22.csv"))
+
+desmith_clinical_data <- read_xlsx(here::here("data", "FV_TRDEEWT5_ODSCS_demith_ClinicalData_17June22.xlsx"))
+
+desmith_seq_manifest <- read_delim(here::here("data", "FV_HR9F87C2_DeSmith broad manifest.tsv"), delim = "\t")
+```
+
+
+```{r}
+n_distinct(desmith_seq_manifest$collaborator_participant_id) #442
+n_distinct(desmith_clinical_data$WPSID) #476
+n_distinct(desmith_sample_manifest$WPSID) #476
+```
+
+```{r}
+# all shipped samples had clinical data
+setdiff(desmith_clinical_data$WPSID, desmith_sample_manifest$WPSID)
+setdiff(desmith_sample_manifest$WPSID, desmith_clinical_data$WPSID)
+
+# some samples failed seq?
+setdiff(desmith_clinical_data$WPSID, desmith_seq_manifest$collaborator_participant_id) %>% length() #34
+
+# all seq'd samples have clinical
+desmith_seq_manifest %>% 
+  left_join(desmith_clinical_data, by = c("collaborator_participant_id" = "WPSID")) %>% 
+  view()
+
+desmith_seq_manifest %>% 
+  filter(collaborator_participant_id %in% desmith_clinical_data$WPSID) %>% 
+  nrow()
+```
+

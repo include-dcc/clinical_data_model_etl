@@ -71,7 +71,8 @@ Final table:
 
 ```{r}
 khor_participant <- khor_transformed %>% 
-  mutate(`Study Code` = "BRI-DSR",
+  mutate(`Component` = "Participant",
+         `Study Code` = "BRI-DSR",
          `Participant ID` = `External ID`,
          `Family ID` = "Not provided",
          `Family Type` = "Proband-only",
@@ -81,7 +82,8 @@ khor_participant <- khor_transformed %>%
          `Down Syndrome Status` = "T21",
          `Outcomes Vital Status` = "Not provided",
          `Age at Last Vital Status` = "Not provided") %>% 
-  select(`Study Code`,
+  select(`Component`,
+         `Study Code`,
          `Participant ID`,
          `External ID`,
          `Family ID`,
@@ -172,10 +174,37 @@ write_csv(khor_condition, here::here("output", "khor_condition.csv"))
 ```
 
 
+##### BIOSPECIMEN - ADD AGES
+
+Add ages from GEO series matrix to Meen's biospecimen/data file manifest
+
+```{r}
+meen_khor_manifest <- read_csv(here::here("data", "meen_khor_manifest.csv"))
+
+geo_metadata <- as.matrix(read_delim(here::here("data", "khor_geo_metadata_partial.txt"), delim = "\t"))
+```
 
 
+```{r}
+ages <- t(geo_metadata) %>% 
+  as_tibble(rownames = "sample_id") %>% 
+  janitor::row_to_names(1) %>% 
+  select(1, 11) %>% 
+  rename(c("Container ID" = 1, "age_at_draw" = 2)) %>% 
+  mutate(age_at_draw = str_extract(age_at_draw, "[:digit:]+"))
+  
+```
 
+```{r}
+meen_khor_manifest_with_age <- meen_khor_manifest %>% 
+  left_join(ages) %>% 
+  mutate(`Age at Biospecimen Collection` = age_at_draw) %>% 
+  select(-age_at_draw)
+```
 
+```{r}
+write_csv(meen_khor_manifest_with_age, here::here("output", "meen_khor_manifest_with_age.csv"))
+```
 
 
 

@@ -1,0 +1,142 @@
+---
+title: "March 2023 data cleaning"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(skimr)
+
+synLogin()
+```
+
+Hakon:
+- DNA: syn44291080
+- RNA: syn44291064
+de Smith: syn44271573
+DS-Sleep:
+- demo (DCG): syn42114527
+
+**should we share the clinical data if sample failed seq? I think so**
+
+
+### de Smith:
+
+```{r}
+desmith_clin <- read_xlsx(synGet("syn44271573")$path)
+```
+
+```{r}
+skim(desmith_clin) %>% view()
+```
+
+Check that IDs are unique:
+```{r}
+n_distinct(desmith_clin$WPSID) #476
+```
+
+
+Cols that are <chr> but should contain numbers:
+Age at enrollment
+Gestational age at birth
+Birthweight
+Age at last known vital status
+Platelets at birth
+Peripheral blood blasts at birth
+
+```{r}
+# use datapasta to make vector
+misclassified <- c("Age at enrollment", "Gestational age at birth", "Birthweight", "Age at last known vital status", "Platelets at birth", "Peripheral blood blasts at birth")
+
+unique(desmith_clin$`Age at enrollment (days)`)
+
+desmith_clin %>% 
+  select(matches(misclassified)) %>% 
+  filter(if_any(everything(), ~ !str_detect(., "[:digit:]")))
+``` 
+
+- let Age at enrollment be `NA` since it is all <15
+- replace nk with `NA`
+- convert misclassified cols to numeric
+
+```{r}
+desmith_cleaned <- desmith_clin %>% 
+  mutate(across(matches(misclassified), ~na_if(., "nk"))) %>% 
+  mutate(across(matches(misclassified), ~as.numeric(.)))
+```
+
+
+```{r}
+character_cols <- desmith_cleaned %>% 
+  select(where(is.character)) %>% 
+  colnames()
+
+
+```
+
+Sample info for CHOP:
+
+- find out age at sample collection - how to annotate if <15? 
+* should harmonize to data model before sending to CHOP
+```{r}
+desmith_sample_catalog <- desmith_clin %>% 
+  select(WPSID, Sample, `Analyte type`, `Experimental strategy`, `Age at enrollment (days)`)
+```
+
+
+
+### Hakon:
+
+```{r}
+hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
+hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
+
+#delete the last few cols since they are for solid tumors
+hakon_clin_all <- hakon_clin_dna %>% 
+  rbind(hakon_clin_rna) %>% 
+  select(-(`Days to First Event`:last_col()))
+```
+
+```{r}
+skim(hakon_clin_all) %>% view()
+```
+
+Check that IDs are unique:
+```{r}
+n_distinct(hakon_clin_all$`Participant ID`) #1152 (1140 DNA + 12 that only have RNA)
+```
+
+How many participants have both DNA & RNA
+```{r}
+hakon_clin_all %>% 
+  count(`Participant ID`) %>% 
+  filter(n == 2) #372
+```
+
+Has RNA but not DNA:
+```{r}
+setdiff(hakon_clin_rna$`Participant ID`, hakon_clin_dna$`Participant ID`) #12
+```
+
+
+### HTP X01
+
+```{r}
+htp_x01_wgs <- read_tsv(synGet("syn50912055")$path)
+htp_x01_rna <- read_tsv(synGet("syn50912054")$path)
+htp_clin <- read_xlsx(synGet("syn25574963")$path)
+```
+
+
+```{r}
+setdiff(htp_x01_wgs$collaborator_participant_id, htp_clin$LabID)
+# "HTP0721A2" "HTP0760A"  "HTP0888A"  "HTP0748A"  "HTP0755A"
+
+setdiff(htp_x01_rna$individual_alias, htp_clin$LabID) %>% sort()
+# "HTP0040B8" "HTP0749B"  "HTP0739A"  "HTP0746A"  "HTP0727A"  "HTP0728A"  "HTP0729A"  "HTP0730A"  "HTP0731A"  "HTP0737A"  "HTP0738A"
+```
+

@@ -31,13 +31,10 @@ write_csv(all_cohorts_condition, here::here("output", "all_cohorts_condition.csv
 all_cohorts_participant %>% 
   group_by(`Study Code`) %>% 
   slice_sample(n = 3) %>% 
-  pull(`Participant ID`)
+  select(`Study Code`, `Participant ID`)
 
-all_cohorts_condition %>% 
-  group_by(`Study Code`) %>% 
-  slice_sample(n = 3) %>% 
-  pull(`Participant ID`)
 
+### Counting and stuff
 
 # how many unique participants?
 n_distinct(all_cohorts_participant$`Participant ID`)

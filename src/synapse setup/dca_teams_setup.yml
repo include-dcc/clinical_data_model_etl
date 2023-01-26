@@ -1,0 +1,127 @@
+
+# 1. Make the yml file using the template [here](https://github.com/Sage-Bionetworks/synapseformation/blob/main/templates/long.yaml). Make sure to use the exact structure with hyphens, indents, etc. I used RStudio as my text editor (New File > Text File > Save As > `minidream_2022_formation.yml`)
+# 2. Open a terminal (I tried to use the RStudio terminal but it didn't work for some reason, so I used git bash)
+# 3. Use `cd` to navigate to folder with the yml file
+# 4. `python -m venv .venv`
+# 5. `source .venv/Scripts/activate` (this is for Windows - use `bin` instead of `Scripts` for Mac)
+# 6. `pip install synapseformation`
+# 7.  `synapse login -u "username" -p "password" --rememberMe`
+# 8. `synapseformation create --template_path dca_teams_setup.yml`
+
+
+# - name: INCLUDE_DS360-CHD
+#   type: Team
+#   can_public_join: false
+#   description: KF Sherman study team
+#   invitations:
+#   - message:
+#     members:
+#     - principal_id: 3423548 # lopierra
+#     - email:
+# 
+# - name: INCLUDE_DS-COG-ALL
+#   type: Team
+#   can_public_join: false
+#   description: KF Lupo study team
+#   invitations:
+#   - message:
+#     members:
+#     - principal_id: 3423548 # lopierra
+#     - email:
+# - name: INCLUDE_DS-PCGC
+#   type: Team
+#   can_public_join: false
+#   description: KF PCGC study team
+#   invitations:
+#   - message: 
+#     members:
+#     - principal_id: 3423548 # lopierra
+#     - email: 
+# - name: INCLUDE_X01-DeSmith
+#   type: Team
+#   can_public_join: false
+#   description: DeSmith X01 study team
+#   invitations:
+#   - message: 
+#     members:
+#     - principal_id: 3423548 # lopierra
+# - name: INCLUDE_X01-Hakon
+#   type: Team
+#   can_public_join: false
+#   description: Hakonarson X01 study team
+#   invitations:
+#   - message: 
+#     members:
+#     - principal_id: 3423548 # lopierra
+# - name: INCLUDE_EXcEEDS
+#   type: Team
+#   can_public_join: false
+#   description: EXcEEDS (Fidler) study team
+#   invitations:
+#   - message: 
+#     members:
+#     - principal_id: 3423548 # lopierra
+# - name: INCLUDE_DS-Sleep
+#   type: Team
+#   can_public_join: false
+#   description: DS-Sleep (Martin) study team
+#   invitations:
+#   - message:
+#     members:
+#     - principal_id: 3423548 # lopierra
+- name: INCLUDE_DS-PALS
+  type: Team
+  can_public_join: false
+  description: DS-PALS (Rabin) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra
+- name: INCLUDE_ECODS
+  type: Team
+  can_public_join: false
+  description: ECODS (Esbensen) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra
+- name: INCLUDE_DS-ISP
+  type: Team
+  can_public_join: false
+  description: DS-ISP (Baumer) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra
+- name: INCLUDE_DS-Immune
+  type: Team
+  can_public_join: false
+  description: DS-Immune (Khor) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra
+- name: INCLUDE_DS-Brain
+  type: Team
+  can_public_join: false
+  description: DS-Brain (Korenberg) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra
+- name: INCLUDE_DS-COG-AML
+  type: Team
+  can_public_join: false
+  description: DS-COG-AML (Meshinchi) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra
+- name: INCLUDE_ADS
+  type: Team
+  can_public_join: false
+  description: ADS (Head) study team
+  invitations:
+  - message:
+    members:
+    - principal_id: 3423548 # lopierra

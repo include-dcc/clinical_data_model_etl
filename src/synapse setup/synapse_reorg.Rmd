@@ -1,0 +1,33 @@
+---
+title: "INCLUDE Synapse reorg"
+output: html_notebook
+---
+
+```{r}
+library(synapser)
+library(synapserutils)
+
+synLogin()
+```
+
+New folders:
+
+HTP: syn26215200
+DS-Connect: syn26215220
+KF: syn26215219
+
+```{r}
+# HTP clinical
+synMove("syn25430391", "syn26215200")
+
+# HTP biospecimen
+synMove("syn25716271", "syn26215200")
+
+# DS-Connect
+synMove("syn25425191", "syn26215220")
+
+# KF
+synMove ("syn25701613", "syn26215219")
+
+```
+

@@ -1,0 +1,9 @@
+- name: INCLUDE_test2
+  type: Team
+  can_public_join: false
+  description: test team
+  invitations:
+  - message: Hello - this is Pierrette from Sage Bionetworks. This is an invitation to join your INCLUDE Synapse team. We will then grant you access to your Synapse project. Further instructions on uploading data to follow. Thanks! 
+    members:
+    - principal_id: 
+    - inviteeEmail: pierrette.lo@sagebase.org
