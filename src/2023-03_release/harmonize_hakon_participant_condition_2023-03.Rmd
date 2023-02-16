@@ -1,0 +1,68 @@
+---
+title: "harmonize Hakon March 2023"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(skimr)
+
+synLogin()
+```
+
+
+### Initial cleanup:
+
+```{r}
+hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
+hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
+
+#delete the last few cols since they are for solid tumors
+hakon_clin_all <- hakon_clin_dna %>% 
+  rbind(hakon_clin_rna) %>% 
+  select(-(`Days to First Event`:last_col()))
+```
+
+```{r}
+skim(hakon_clin_all) %>% view()
+```
+
+Check that IDs are unique:
+```{r}
+n_distinct(hakon_clin_all$`Participant ID`) #1152 (1140 DNA + 12 that only have RNA)
+```
+
+How many participants have both DNA & RNA
+```{r}
+hakon_clin_all %>% 
+  count(`Participant ID`) %>% 
+  filter(n == 2) #372
+```
+
+Has RNA but not DNA:
+```{r}
+setdiff(hakon_clin_rna$`Participant ID`, hakon_clin_dna$`Participant ID`) #12
+```
+
+
+## Pull conditions for annotation:
+
+Then paste into condition_codes_v3 Google Sheet for annotation
+https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=384137116
+
+```{r}
+hakon_clin_all %>% 
+  select(`Participant ID`, `Phenotypes Text`) %>% 
+  separate_rows(`Phenotypes Text`, sep = ";") %>% 
+  mutate(`Phenotypes Text` = str_trim(`Phenotypes Text`)) %>% 
+  select(-`Participant ID`) %>%
+  distinct() %>%
+  arrange(`Phenotypes Text`) %>% 
+  write_csv(here::here("output", "hakon_conditions_for_annotation.csv"))
+  
+```
+

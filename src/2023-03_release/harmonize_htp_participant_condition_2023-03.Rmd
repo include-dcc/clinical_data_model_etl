@@ -1,0 +1,358 @@
+---
+title: "Harmonize HTP clinical data - March 2023"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+```
+
+Read in data:
+
+NOTE: BMI, Weight, Height have "NA" strings
+OfficialDSDiagnosis has blanks (`NA`)
+
+```{r}
+htp_clinical_data <- read_xlsx(synGet("syn25574963")$path)
+```
+
+Replace headers with working_headers
+See Google sheet `INCLUDE clinical data dictionaries` -> `HTP`
+```{r}
+gs4_deauth()
+htp_working_headers <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
+           sheet = "HTP")
+
+htp_clinical_data <- setNames(htp_clinical_data, htp_working_headers$working_header)
+```
+
+Get ETL plan
+```{r}
+source("harmonization_setup_2023-03.R")
+
+htp_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "HTP")
+```
+
+Add Participant IDs:
+```{r}
+htp_clinical_harmonized <- htp_clinical_data %>% 
+  mutate(participantExternalId = 
+           str_extract(lab_id, "HTP[:digit:]{4}"),
+         .before = everything())
+```
+
+
+##### PARTICIPANT
+
+Remove Condition cols & anything that changes by visit
+Remove duplicate rows caused by multiple visits
+```{r}
+htp_participant <- htp_clinical_harmonized %>% 
+  select(participantExternalId, sex_original, age_at_enrollment_days, family_id, karyotype, relationship, ds_diagnosis, race_original, ethnicity_original, official_ds_diagnosis) %>% 
+  distinct()
+```
+
+
+Sex: No changes needed
+
+Race:
+```{r}
+lookup_values <- htp_etl_plan %>% 
+  filter(model_slot == "race") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+htp_participant <- htp_participant %>% 
+  left_join(lookup_values, by = c("race_original" = "original_value")) %>% 
+  rename(race = model_enum_label)
+
+# check:
+# htp_participant %>% select(participantExternalId, race_original, race)
+```
+
+Ethnicity:
+```{r}
+lookup_values <- htp_etl_plan %>% 
+  filter(model_slot == "ethnicity") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+htp_participant <- htp_participant %>% 
+  left_join(lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
+  rename(ethnicity = model_enum_label)
+
+# check:
+# htp_participant %>% select(participantExternalId, ethnicity_original, ethnicity)
+```
+
+Down Syndrome Status:
+```{r}
+lookup_values <- htp_etl_plan %>% 
+  filter(model_slot == "downSyndromeStatus") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+htp_participant <- htp_participant %>% 
+  left_join(lookup_values, by = c("karyotype" = "original_value")) %>% 
+  rename(downSyndromeStatus = model_enum_label) 
+
+# check:
+# htp_participant %>% select(participantExternalId, karyotype, downSyndromeStatus)
+```
+
+Family ID: No changes needed
+
+Family Relationship:
+(Note: "of control" means "of D21" - NOT unrelated
+Currently only classifying relationships to Proband, not within Unrelated Control families)
+
+```{r}
+htp_participant <- htp_participant %>% 
+  separate_rows(relationship, sep = ",") %>% 
+  mutate(relationship = str_trim(relationship)) %>% 
+  filter(!str_detect(relationship, "of Control")) %>% 
+  mutate(familyRelationship = case_when(
+    relationship == "Control - No relation to proband" ~ "Unrelated control",
+    relationship == "Proband" ~ "Proband",
+    relationship == "Sibling of Proband" ~ "Sibling",
+    relationship == "Other relation of Proband" ~ "Other relative",
+    relationship == "Parent of Proband" & sex_original == "Male" ~ "Father",
+    relationship == "Parent of Proband" & sex_original == "Female" ~ "Mother"
+  ))
+
+# htp_participant %>% select(participantExternalId, family_id, sex_original, relationship, familyRelationship) 
+
+```
+
+Find participants who have more than 1 relationship listed
+
+## also fix these below for Family Type and Family IDs
+
+```{r}
+
+htp_participant %>% 
+  select(participantExternalId, family_id, sex_original, relationship, familyRelationship) %>% 
+  group_by(participantExternalId) %>% 
+  mutate(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  filter(n >= 2)
+
+```
+
+Family Type:
+**DO WE NEED DUO+ OR PROBAND+SIBLING?**
+```{r}
+# figure out Family Types first for each family
+family_types <- htp_participant %>% 
+  select(participantExternalId, family_id, familyRelationship) %>% 
+  arrange(family_id) %>% 
+  distinct() %>% 
+  add_count(family_id) %>%
+  group_by(family_id) %>% 
+  mutate(familyType = case_when(
+    n == 1 & familyRelationship == "Proband" ~ "Proband-only",
+    n == 1 & familyRelationship == "Other relative" ~ "Other",
+    n >= 1 & any(familyRelationship == "Unrelated control") ~ "Control-only",
+    n == 2 & any(str_detect(familyRelationship, "Mother|Father")) ~ "Duo",
+    n == 3 & all(!str_detect(familyRelationship, "Sibling|Other relative")) ~ "Trio",
+    n > 3 & any(familyRelationship == "Proband") & any(familyRelationship == "Mother") & any(familyRelationship == "Father") ~ "Trio+",
+    TRUE ~ "Other"
+ )) %>% 
+  select(family_id, familyType) %>% 
+  distinct() 
+
+htp_participant <- htp_participant %>% 
+  left_join(family_types, by = "family_id")
+
+# htp_participant %>% arrange(family_id) %>% select(participantExternalId, family_id, sex_original, relationship, familyRelationship, familyType) 
+```
+
+Family Member IDs:
+```{r}
+# mother & father IDs
+parent_ids <- htp_participant %>%
+  arrange(family_id) %>% 
+  select(participantExternalId, family_id, familyRelationship) %>%
+  filter(str_detect(familyRelationship, "Proband|Mother|Father")) %>% 
+  pivot_wider(id_cols = family_id,
+              names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  unnest() %>% 
+  rename(participantExternalId = Proband,
+         motherId = Mother,
+         fatherId = Father)
+
+# sibling IDs
+sibling_ids <- htp_participant %>%
+  arrange(family_id) %>% 
+  select(participantExternalId, family_id, familyRelationship) %>%
+  filter(str_detect(familyRelationship, "Proband|Sibling")) %>% 
+  pivot_wider(id_cols = family_id,
+              names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  unnest_wider(Sibling, names_sep = "") %>% 
+  unnest(Proband) %>% 
+  unite(col = "siblingId", starts_with("Sibling"), sep = ", ", na.rm = TRUE) %>%
+  filter(siblingId != "") %>% 
+  rename(participantExternalId = Proband)
+
+# other relative IDs
+other_rel_ids <- htp_participant %>%
+  arrange(family_id) %>% 
+  select(participantExternalId, family_id, familyRelationship) %>%
+  filter(str_detect(familyRelationship, "Proband|Other")) %>% 
+  pivot_wider(id_cols = family_id,
+              names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  unnest_wider(`Other relative`, names_sep = "") %>% 
+  unnest(Proband) %>% 
+  unite(col = "otherFamilyMemberId", starts_with("Other"), sep = ", ", na.rm = TRUE) %>% 
+  filter(otherFamilyMemberId != "") %>% 
+  rename(participantExternalId = Proband)
+
+htp_participant <- htp_participant %>% 
+  left_join(parent_ids) %>% 
+  left_join(sibling_ids) %>% 
+  left_join(other_rel_ids) 
+
+# htp_participant %>% select(participantExternalId, family_id, familyType, familyRelationship, motherId, fatherId, siblingId, otherFamilyMemberId) %>% arrange(family_id)
+
+```
+
+
+Create final Participant table:
+
+- Fill in info that is same for every participant (For empty columns, replace NA with "Not provided")
+- Rename columns that need renamed with schema labels 
+- select all Participant columns
+- rename with display names
+
+```{r}
+htp_participant <- htp_participant %>% 
+  mutate(studyCode = "HTP",
+         participantId = "Not provided",
+         familyId = family_id,
+         sex = sex_original,
+         ageAtFirstPatientEngagement = age_at_enrollment_days,
+         firstPatientEngagementEvent = "Enrollment",
+         outcomesVitalStatus = "Not provided",
+         ageAtLastVitalStatus = "Not provided") %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
+```
+
+```{r}
+write_csv(htp_participant, here::here("output", "htp_participant.csv"))
+```
+
+
+##### CONDITION
+
+Columns: 
+Participant ID 
+Condition Description 
+Age at Condition Observation (Days) - blank for now 
+Condition Interpretation - all "Observed" for now (ie. only positive assertions) 
+Condition Source - all "Clinical" 
+HPO Label 
+HPO Code 
+MONDO Label 
+MONDO Code 
+MAXO Label 
+MAXO Code 
+Other Label 
+Other Code
+
+
+Bring in previously annotated phenotypes csv downloaded from ETL Google sheet (https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1006243162)
+
+```{r}
+pheno_lookup_htp <- read_csv(here::here("data", "pheno_codes_v2.csv")) %>% 
+  filter(cohort == "HTP")
+```
+
+Data Check: confirm that every set of visits for a participant has the same phenotype values (i.e. 1)
+```{r}
+htp_clinical_transformed %>% 
+  select(-(LabID:MRAbstractionStatus)) %>% 
+  group_by(`External ID`) %>% 
+  distinct() %>% 
+  count() %>% 
+  arrange(desc(n))
+```
+
+Pull conditions from clinical data
+** SPECIAL CASE: Delete column "Anatomical Anomaly" and all "Unsure" cols, per Angela
+Look up annotations
+```{r}
+htp_conditions_subset <- htp_clinical_transformed %>% 
+  select(-(LabID:MRAbstractionStatus), -`Anatomical anomaly`, -starts_with("Unsure")) %>%
+  group_by(`External ID`) %>% 
+  distinct() %>% 
+  ungroup() %>% 
+  pivot_longer(cols = c(-`External ID`), 
+               names_to = "Source Text",
+               values_to = "Status") %>%
+  filter(Status == TRUE) %>% 
+  left_join(pheno_lookup_htp, by = c("Source Text" = "source_column")) %>% 
+  select(-cohort, -source_column_value)
+
+```
+
+Add DS Diagnosis (T21 participants only)
+** SPECIAL CASE: a few participants are T21 but have DS Diagnosis `NA` due to an error - per Angela, change these to "Unsure"
+Look up annotations
+
+```{r}
+htp_ds_diagnoses <- htp_clinical_transformed %>% 
+  mutate(OfficialDSDiagnosis = ifelse(LabID %in% c("HTP0552A", "HTP0562A", "HTP0568A", "HTP0580A", "HTP0634A", "HTP0639A", "HTP0697A"), "Unsure", OfficialDSDiagnosis)) %>% 
+  filter(`Down Syndrome Status` == "T21") %>% 
+  select(`External ID`,
+         `Source Text` = OfficialDSDiagnosis) %>% 
+  mutate(Status = TRUE) %>% 
+  distinct() %>% 
+  left_join(pheno_lookup_htp, by = c("Source Text" = "source_column_value")) %>% 
+  select(-cohort, -source_column)
+```
+
+
+Combine conditions + ds_diagnoses
+Create empty/all same value columns
+Select columns in order of DCA template
+```{r}
+htp_condition <- htp_ds_diagnoses %>% 
+  rbind(htp_conditions_subset) %>% 
+  arrange(`External ID`) %>% 
+  mutate(`Study Code` = "HTP",
+         `Participant ID` = `External ID`,
+         `Age at Condition Observation` = "Not provided",
+         `Condition Interpretation` = "Observed",
+         `Condition Source` = "Clinical") %>% 
+  select(`Study Code`,
+         `Participant ID`,
+         `Condition Description` = display_text,
+         `Age at Condition Observation`,
+         `Condition Interpretation`,
+         `Condition Source`,
+         `HPO Label` = HPO_label,
+         `HPO Code` = HPO_code,
+         `MONDO Label` = MONDO_label,
+         `MONDO Code` = MONDO_code,
+         `MAXO Label` = MAXO_label,
+         `MAXO Code` = MAXO_code,
+         `Other Label` = Other_label,
+         `Other Code` = Other_code)
+```
+
+```{r}
+write_csv(htp_condition, here::here("output", "htp_condition.csv"))
+```
