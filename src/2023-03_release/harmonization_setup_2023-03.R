@@ -10,7 +10,8 @@ gs4_deauth()
 # read in sheets
 condition_codes_v3 <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",
-  sheet = "condition_codes_v3")
+  sheet = "condition_codes_v3") %>% 
+  mutate(source_column_value = as.character(source_column_value))
 
 measure_codes_v3 <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",
@@ -22,6 +23,9 @@ etl_to_linkml_plan <- read_sheet(
 
 # workaround so I can work with schema labels in R and then replace with display names 
 # before passing to schematic validate
+# edit here: https://docs.google.com/spreadsheets/d/1vDdcqt3Lgehyq1iCnlF1H9JZi63pLj-u
+# tab = displaynames_schemalabels_March_2023.csv
+# download as csv and save to "data" folder
 displayname_schemalabel_lookup <- read_csv(
   here::here("data", "displaynames_schemalabels_March_2023.csv"))
 
@@ -39,6 +43,6 @@ condition_schemalabels <- displayname_schemalabel_lookup %>%
   filter(component == "Condition") %>% 
   pull(schema_label)
 
-condition_schemalabels <- displayname_schemalabel_lookup %>% 
+condition_displaynames <- displayname_schemalabel_lookup %>% 
   filter(component == "Condition") %>% 
   pull(display_name)
