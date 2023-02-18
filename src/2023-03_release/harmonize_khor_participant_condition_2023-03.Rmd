@@ -1,0 +1,172 @@
+---
+title: "Harmonize Khor demographic data to LinkML v2 model - March 2023"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+
+synLogin()
+```
+
+
+Read in data:
+```{r}
+khor_clinical_source <- read_xlsx(synGet("syn32937504")$path)
+```
+
+Replace headers with working_headers
+See Google sheet `INCLUDE clinical data dictionaries` -> `BRI-DSR`
+```{r}
+gs4_deauth()
+khor_working_headers <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
+           sheet = "BRI-DSR")
+
+khor_clinical_source <- setNames(khor_clinical_source, khor_working_headers$working_header)
+```
+
+Get ETL plan
+```{r}
+# source("harmonization_setup_2023-03.R")
+
+khor_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "BRI-DSR")
+```
+
+Participant External ID
+```{r}
+khor_clinical_harmonized <- khor_clinical_source %>% 
+  rename(participantExternalId = bri_include_id)
+```
+
+
+## PARTICIPANT
+
+Columns that need to be transformed:
+
+Sex = needs initial cap
+Race
+- White, Caucasian = White
+- Black, African American = Black or African American
+- American Indian, Alaska Native = American Indian or Alaska Native
+- Do Not Know = Unknown
+- NA = Unknown
+- Other Race = Other
+- everything with comma = More than one race
+Ethnicity
+
+```{r}
+khor_sex_lookup_values <- khor_etl_plan %>% 
+  filter(model_slot == "sex") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+khor_race_lookup_values <- khor_etl_plan %>% 
+  filter(model_slot == "race") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value) %>% 
+  na_if("NA")
+
+khor_eth_lookup_values <- khor_etl_plan %>% 
+  filter(model_slot == "ethnicity") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value) %>% 
+  na_if("NA")
+
+khor_participant <- khor_clinical_harmonized %>% 
+  left_join(khor_sex_lookup_values, by = c("gender" = "original_value")) %>% 
+  rename("sex" = model_enum_label) %>% 
+  left_join(khor_race_lookup_values, by = c("race_original" = "original_value")) %>% 
+  rename("race" = model_enum_label) %>%  
+  left_join(khor_eth_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
+  rename("ethnicity" = model_enum_label) 
+
+# %>% select(participantExternalId, gender, sex)
+# select(participantExternalId, race_original, race)
+# select(participantExternalId, ethnicity_original, ethnicity)
+```
+
+Create final Participant table:
+
+- Fill in info that is same for every participant (mutate)
+- Rename columns that need renamed with schema labels (also mutate)
+- select all Participant columns
+- rename with display names
+
+```{r}
+bridsr_participant <- khor_participant %>% 
+  mutate(studyCode = "BRI-DSR",
+         participantGlobalId = NA,
+         familyId = NA,
+         familyType = "Proband-only",
+         fatherId = NA,
+         motherId = NA,
+         siblingId = NA,
+         otherFamilyMemberId = NA,
+         familyRelationship = NA,
+         downSyndromeStatus = "T21",
+         ageAtFirstPatientEngagement = round((age_at_enrollment_years * 365.25), 0),
+         firstPatientEngagementEvent = "Enrollment",
+         outcomesVitalStatus = NA,
+         ageAtLastVitalStatus = NA) %>% 
+    select(all_of(participant_schemalabels))
+
+```
+
+
+```{r}
+write_csv(bridsr_participant, here::here("output", "bridsr_participant.csv"))
+```
+
+
+##### CONDITION
+
+Get Khor conditions & measures
+```{r}
+condition_lookup_khor <- condition_codes_v3 %>% filter(study == "BRI-DSR")
+```
+
+Add column "DS_Diagnosis" = Down syndrome
+Pull conditions from clinical data
+Look up annotations
+```{r}
+khor_condition <- khor_clinical_harmonized %>% 
+  mutate(ds_diagnosis = "Down syndrome") %>% 
+  select(-c(patient_type:ethnicity_original)) %>% 
+  pivot_longer(cols = c(-participantExternalId), 
+               names_to = "source_text",
+               values_to = "status") %>% 
+  filter(!is.na(status)) %>% 
+  left_join(condition_lookup_khor, by = c("source_text" = "source_column")) %>% 
+  select(-study, -source_column_value)
+```
+
+Create empty/all same value columns
+Select columns in order of DCA template
+```{r}
+bridsr_condition <- khor_condition %>% 
+  mutate(eventId = NA,
+         eventType = NA,
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = "Observed",
+         conditionStatus = "History Of",
+         conditionDataSource = "Clinical",         
+         measureValue = NA,
+         measureUnit = NA) %>% 
+  select(all_of(condition_schemalabels))
+```
+
+```{r}
+write_csv(bridsr_condition, here::here("output", "bridsr_condition.csv"))
+```
+
+
+
+
+
+

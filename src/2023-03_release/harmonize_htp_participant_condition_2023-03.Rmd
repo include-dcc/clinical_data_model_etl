@@ -1,5 +1,5 @@
 ---
-title: "Harmonize HTP clinical data - March 2023"
+title: "Harmonize HTP clinical data to LinkML v2 model - March 2023"
 ---
 
 ```{r setup, include=FALSE}
@@ -63,50 +63,37 @@ htp_participant <- htp_clinical_harmonized %>%
 
 Sex: No changes needed
 
-Race:
+Race, Ethnicity, DS Status:
 ```{r}
-lookup_values <- htp_etl_plan %>% 
+htp_race_lookup_values <- htp_etl_plan %>% 
   filter(model_slot == "race") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value)
 
-htp_participant <- htp_participant %>% 
-  left_join(lookup_values, by = c("race_original" = "original_value")) %>% 
-  rename(race = model_enum_label)
-
-# check:
-# htp_participant %>% select(participantExternalId, race_original, race)
-```
-
-Ethnicity:
-```{r}
-lookup_values <- htp_etl_plan %>% 
+htp_eth_lookup_values <- htp_etl_plan %>% 
   filter(model_slot == "ethnicity") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value)
 
-htp_participant <- htp_participant %>% 
-  left_join(lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
-  rename(ethnicity = model_enum_label)
-
-# check:
-# htp_participant %>% select(participantExternalId, ethnicity_original, ethnicity)
-```
-
-Down Syndrome Status:
-```{r}
-lookup_values <- htp_etl_plan %>% 
+htp_ds_lookup_values <- htp_etl_plan %>% 
   filter(model_slot == "downSyndromeStatus") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value)
 
 htp_participant <- htp_participant %>% 
-  left_join(lookup_values, by = c("karyotype" = "original_value")) %>% 
+  left_join(htp_race_lookup_values, by = c("race_original" = "original_value")) %>% 
+  rename(race = model_enum_label) %>% 
+  left_join(htp_eth_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
+  rename(ethnicity = model_enum_label) %>% 
+  left_join(htp_ds_lookup_values, by = c("karyotype" = "original_value")) %>% 
   rename(downSyndromeStatus = model_enum_label) 
 
 # check:
+# htp_participant %>% select(participantExternalId, race_original, race)
+# htp_participant %>% select(participantExternalId, ethnicity_original, ethnicity)
 # htp_participant %>% select(participantExternalId, karyotype, downSyndromeStatus)
 ```
+
 
 Family ID: No changes needed
 
@@ -230,8 +217,8 @@ htp_participant <- htp_participant %>%
 
 Create final Participant table:
 
-- Fill in info that is same for every participant
-- Rename columns that need renamed with schema labels 
+- Fill in info that is same for every participant (mutate)
+- Rename columns that need renamed with schema labels (also mutate)
 - select all Participant columns
 - rename with display names
 
@@ -295,7 +282,7 @@ htp_conditions_subset <- htp_clinical_harmonized %>%
 ```
 
 Add DS Diagnosis (T21 participants only)
-
+**what about HTP0888?**
 ```{r}
 htp_ds_diagnoses <- htp_clinical_harmonized %>% 
   select(participantExternalId,
