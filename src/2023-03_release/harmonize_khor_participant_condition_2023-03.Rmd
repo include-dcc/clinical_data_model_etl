@@ -1,5 +1,5 @@
 ---
-title: "Harmonize Khor demographic data to LinkML v2 model - March 2023"
+title: "Harmonize Khor to LinkML v2 model - March 2023"
 ---
 
 
@@ -25,7 +25,7 @@ See Google sheet `INCLUDE clinical data dictionaries` -> `BRI-DSR`
 gs4_deauth()
 khor_working_headers <- read_sheet(
   "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
-           sheet = "BRI-DSR")
+  sheet = "BRI-DSR")
 
 khor_clinical_source <- setNames(khor_clinical_source, khor_working_headers$working_header)
 ```
@@ -86,9 +86,7 @@ khor_participant <- khor_clinical_harmonized %>%
   left_join(khor_eth_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
   rename("ethnicity" = model_enum_label) 
 
-# %>% select(participantExternalId, gender, sex)
-# select(participantExternalId, race_original, race)
-# select(participantExternalId, ethnicity_original, ethnicity)
+# %>% select(participantExternalId, gender, sex, race_original, race, ethnicity_original, ethnicity)
 ```
 
 Create final Participant table:
@@ -114,7 +112,8 @@ bridsr_participant <- khor_participant %>%
          firstPatientEngagementEvent = "Enrollment",
          outcomesVitalStatus = NA,
          ageAtLastVitalStatus = NA) %>% 
-    select(all_of(participant_schemalabels))
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
 
 ```
 
@@ -158,7 +157,8 @@ bridsr_condition <- khor_condition %>%
          conditionDataSource = "Clinical",         
          measureValue = NA,
          measureUnit = NA) %>% 
-  select(all_of(condition_schemalabels))
+  select(all_of(condition_schemalabels)) %>% 
+  setNames(condition_displaynames)
 ```
 
 ```{r}

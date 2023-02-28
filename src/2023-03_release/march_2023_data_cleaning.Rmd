@@ -1,6 +1,5 @@
 ---
 title: "March 2023 data cleaning"
-output: html_notebook
 ---
 
 ```{r setup, include=FALSE}
@@ -120,6 +119,24 @@ hakon_clin_all %>%
 Has RNA but not DNA:
 ```{r}
 setdiff(hakon_clin_rna$`Participant ID`, hakon_clin_dna$`Participant ID`) #12
+```
+
+
+## Pull conditions for annotation:
+
+Then paste into condition_codes_v3 Google Sheet for annotation
+https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=384137116
+
+```{r}
+hakon_clin_all %>% 
+  select(`Participant ID`, `Phenotypes Text`) %>% 
+  separate_rows(`Phenotypes Text`, sep = ";") %>% 
+  mutate(`Phenotypes Text` = str_trim(`Phenotypes Text`)) %>% 
+  select(-`Participant ID`) %>%
+  distinct() %>%
+  arrange(`Phenotypes Text`) %>% 
+  write_csv(here::here("output", "hakon_conditions_for_annotation.csv"))
+  
 ```
 
 

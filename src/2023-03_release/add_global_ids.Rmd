@@ -1,0 +1,30 @@
+---
+title: "Add Global IDs using dewrangle - March 2023"
+---
+
+Test data:
+
+```{r}
+test_participant <- bind_rows(htp_participant, hakon_participant)
+
+test_global_id_manifest <- test_participant %>%
+  mutate(fhir_resource_type = "patient") %>% 
+  select(descriptor = `Participant External ID`,
+         fhir_resource_type) %>% 
+  distinct() # hakon duplicate IDs
+
+write_csv(test_global_id_manifest, here::here("output", "test_global_id_manifest.csv"))
+
+test_global_ids <- read_csv(here::here("data", "global-descriptors-zzSandbox-Test-Study.csv")) %>% 
+  select(`Participant External ID` = descriptor,
+         `Participant Global ID` = global_id)
+  
+test_participant_with_global_ids <- test_participant %>%
+#  select(-`Participant Global ID`) %>% 
+  left_join(test_global_ids) %>% 
+  relocate(`Participant Global ID`, .after = `Participant External ID`) %>% 
+  arrange(`Participant External ID`)
+
+write_csv(test_participant_with_global_ids, here::here("output", "test_participant_with_global_ids.csv"))
+```
+

@@ -28,7 +28,7 @@ See Google sheet `INCLUDE clinical data dictionaries` -> `HTP`
 gs4_deauth()
 htp_working_headers <- read_sheet(
   "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
-           sheet = "HTP")
+  sheet = "HTP")
 
 htp_clinical_source <- setNames(htp_clinical_source, htp_working_headers$working_header)
 ```
@@ -56,7 +56,9 @@ Remove Condition cols & anything that changes by visit
 Remove duplicate rows caused by multiple visits
 ```{r}
 htp_participant <- htp_clinical_harmonized %>% 
-  select(participantExternalId, sex_original, age_at_enrollment_days, family_id, karyotype, relationship, ds_diagnosis, race_original, ethnicity_original, official_ds_diagnosis) %>% 
+  select(participantExternalId, sex_original, age_at_enrollment_days, family_id, 
+         karyotype, relationship, ds_diagnosis, race_original, ethnicity_original, 
+         official_ds_diagnosis) %>% 
   distinct()
 ```
 
@@ -89,9 +91,7 @@ htp_participant <- htp_participant %>%
   rename(downSyndromeStatus = model_enum_label) 
 
 # check:
-# htp_participant %>% select(participantExternalId, race_original, race)
-# htp_participant %>% select(participantExternalId, ethnicity_original, ethnicity)
-# htp_participant %>% select(participantExternalId, karyotype, downSyndromeStatus)
+# %>% select(participantExternalId, race_original, race, ethnicity_original, ethnicity, karyotype, downSyndromeStatus)
 ```
 
 
@@ -101,32 +101,52 @@ Family Relationship:
 (Note: "of control" means "of D21" - NOT unrelated
 Currently only classifying relationships to Proband, not within Unrelated Control families)
 
+**Special cases (per Angela):**
+- F0001 is a relative of a Proband who is no longer in the study
+- 0052 and 0053 are Probands + adopted siblings so they have different Family IDs (F0034 
+and F0031) -> Treat as unrelated; leave as Probands, delete "Other relation of Proband"
+- 0603 is also adopted sib to another proband -> leave as Proband and delete "Other 
+relation of Proband"
+- 0566 and 0561 are twins - delete "Other relation of Proband" as that is just to trigger a
+free text box in redcap
+
+- e.g. F0072-F0078 has parents of Proband but not Proband - there are several like this
+These won't have family member IDs because there's no Proband
+
 ```{r}
-htp_participant <- htp_participant %>% 
+htp_relationships <- htp_participant %>%
+  select(participantExternalId, sex_original, family_id, relationship) %>% 
+  #fix the above special cases
+  mutate(relationship = case_when(
+    participantExternalId %in% c("HTP0052", "HTP0053", "HTP0603") ~ "Proband",
+    participantExternalId %in% c("HTP0566", "HTP0561") ~ "Proband,Sibling of Proband",
+    TRUE ~ relationship
+  )) %>% 
   separate_rows(relationship, sep = ",") %>% 
-  mutate(relationship = str_trim(relationship)) %>% 
+  mutate(relationship = str_trim(relationship)) %>%
   filter(!str_detect(relationship, "of Control")) %>% 
   mutate(familyRelationship = case_when(
     relationship == "Control - No relation to proband" ~ "Unrelated control",
     relationship == "Proband" ~ "Proband",
     relationship == "Sibling of Proband" ~ "Sibling",
-    relationship == "Other relation of Proband" ~ "Other relative",
+    relationship == "Other Relation of Proband" ~ "Other relative", #HTP0001
+    relationship == "Other relation of Proband" ~ "Other relative", #HTP0602
     relationship == "Parent of Proband" & sex_original == "Male" ~ "Father",
     relationship == "Parent of Proband" & sex_original == "Female" ~ "Mother"
-  ))
+  )) %>% 
+  arrange(family_id)
 
-# htp_participant %>% select(participantExternalId, family_id, sex_original, relationship, familyRelationship) 
+# htp_relationships %>% select(participantExternalId, family_id, sex_original, relationship, familyRelationship) 
 
+#filter(participantExternalId %in% c("HTP0052", "HTP0053", "HTP0603"))
 ```
 
-Find participants who have more than 1 relationship listed
-
-## also fix these below for Family Type and Family IDs
+Check participants who have more than 1 relationship listed
+Make note of those for Family Type and Family Member IDs
 
 ```{r}
 
-htp_participant %>% 
-  select(participantExternalId, family_id, sex_original, relationship, familyRelationship) %>% 
+htp_relationships %>% 
   group_by(participantExternalId) %>% 
   mutate(n = n()) %>% 
   arrange(desc(n)) %>% 
@@ -134,38 +154,10 @@ htp_participant %>%
 
 ```
 
-Family Type:
-**DO WE NEED DUO+ OR PROBAND+SIBLING?**
-```{r}
-# figure out Family Types first for each family
-family_types <- htp_participant %>% 
-  select(participantExternalId, family_id, familyRelationship) %>% 
-  arrange(family_id) %>% 
-  distinct() %>% 
-  add_count(family_id) %>%
-  group_by(family_id) %>% 
-  mutate(familyType = case_when(
-    n == 1 & familyRelationship == "Proband" ~ "Proband-only",
-    n == 1 & familyRelationship == "Other relative" ~ "Other",
-    n >= 1 & any(familyRelationship == "Unrelated control") ~ "Control-only",
-    n == 2 & any(str_detect(familyRelationship, "Mother|Father")) ~ "Duo",
-    n == 3 & all(!str_detect(familyRelationship, "Sibling|Other relative")) ~ "Trio",
-    n > 3 & any(familyRelationship == "Proband") & any(familyRelationship == "Mother") & any(familyRelationship == "Father") ~ "Trio+",
-    TRUE ~ "Other"
- )) %>% 
-  select(family_id, familyType) %>% 
-  distinct() 
-
-htp_participant <- htp_participant %>% 
-  left_join(family_types, by = "family_id")
-
-# htp_participant %>% arrange(family_id) %>% select(participantExternalId, family_id, sex_original, relationship, familyRelationship, familyType) 
-```
-
 Family Member IDs:
 ```{r}
 # mother & father IDs
-parent_ids <- htp_participant %>%
+parent_ids <- htp_relationships %>%
   arrange(family_id) %>% 
   select(participantExternalId, family_id, familyRelationship) %>%
   filter(str_detect(familyRelationship, "Proband|Mother|Father")) %>% 
@@ -177,8 +169,8 @@ parent_ids <- htp_participant %>%
          motherId = Mother,
          fatherId = Father)
 
-# sibling IDs
-sibling_ids <- htp_participant %>%
+
+sibling_ids <- htp_relationships %>%
   arrange(family_id) %>% 
   select(participantExternalId, family_id, familyRelationship) %>%
   filter(str_detect(familyRelationship, "Proband|Sibling")) %>% 
@@ -189,10 +181,15 @@ sibling_ids <- htp_participant %>%
   unnest(Proband) %>% 
   unite(col = "siblingId", starts_with("Sibling"), sep = ", ", na.rm = TRUE) %>%
   filter(siblingId != "") %>% 
-  rename(participantExternalId = Proband)
+  rename(participantExternalId = Proband) %>% 
+  #remove probands that are listed as their own sib (eg. 0295)
+  mutate(siblingId = str_replace(siblingId, paste0(.$participantExternalId, ", "), "")) %>% 
+  mutate(siblingId = str_replace(siblingId, paste0(", ", .$participantExternalId), ""))
 
-# other relative IDs
-other_rel_ids <- htp_participant %>%
+# other relative IDs - looks like there are no families with Other Relatives and Probands
+# (F0001 and F0058 have Other Relatives that aren't twins/etc but those families don;t have
+# Probands)
+other_rel_ids <- htp_relationships %>%
   arrange(family_id) %>% 
   select(participantExternalId, family_id, familyRelationship) %>%
   filter(str_detect(familyRelationship, "Proband|Other")) %>% 
@@ -203,17 +200,71 @@ other_rel_ids <- htp_participant %>%
   unnest(Proband) %>% 
   unite(col = "otherFamilyMemberId", starts_with("Other"), sep = ", ", na.rm = TRUE) %>% 
   filter(otherFamilyMemberId != "") %>% 
-  rename(participantExternalId = Proband)
+  rename(participantExternalId = Proband) %>% 
+  #remove probands that are listed as their own other relative (e.g. HTP0602) 
+  mutate(otherFamilyMemberId = na_if(otherFamilyMemberId, participantExternalId))
 
-htp_participant <- htp_participant %>% 
+htp_relationships <- htp_relationships %>% 
   left_join(parent_ids) %>% 
   left_join(sibling_ids) %>% 
-  left_join(other_rel_ids) 
+  left_join(other_rel_ids) %>% 
+  group_by(participantExternalId) %>%  
+  #combine multiple relationships into single row (e.g. Proband, Sibling)
+  mutate(familyRelationship = paste(familyRelationship, collapse = ", ")) %>% 
+  ungroup() %>% 
+  #remove duplicates caused by splitting out relationships into separate rows
+  select(-relationship) %>% 
+  distinct()
 
-# htp_participant %>% select(participantExternalId, family_id, familyType, familyRelationship, motherId, fatherId, siblingId, otherFamilyMemberId) %>% arrange(family_id)
-
+# select(participantExternalId, family_id, familyRelationship, motherId, fatherId, siblingId, otherFamilyMemberId) %>% arrange(family_id) %>%
+#mutate(n = n()) %>% arrange(desc(n)) %>%
 ```
 
+
+
+
+Family Type:
+**DO WE NEED DUO+ OR PROBAND+SIBLING?**
+SPECIAL CASES: 
+F0001 has a Proband that is not in this dataset -> should be listed as familyType Other
+F0058, F0072-78 have family members but no Proband
+F0162, F0084 have 2 probands
+
+Use FamilyID instead of Proband, otherwise of families with no Proband will be left out
+
+**define OTHER as also including either control families OR Proband withdrawn due to consent)**
+```{r}
+htp_family_types <- htp_relationships %>% 
+  select(-participantExternalId, -sex_original) %>%
+  group_by(family_id) %>%
+  arrange(familyRelationship, .by_group = TRUE) %>% #alphabetical order for consistency 
+  mutate(family_list = paste(familyRelationship, collapse = "|"), .after = family_id) %>% 
+  mutate(family_count = max(rowSums(!is.na(across(c(motherId, fatherId, siblingId,
+                                                otherFamilyMemberId))))), .after = family_list) %>% 
+  select(family_id, family_list, family_count) %>%
+  distinct() %>% 
+  mutate(familyType = case_when(
+    family_list == "Proband" ~ "Proband_only",
+    family_list == "Mother|Proband" ~ "Duo",
+    family_list == "Father|Proband" ~ "Duo",
+    family_list == "Father|Mother|Proband" ~ "Trio",
+    family_count > 2 & str_detect(family_list, "Mother") & str_detect(family_list, "Father") ~ "Trio+",
+    TRUE ~ "Other")
+  ) %>% 
+  select(family_id, familyType)
+  
+```
+
+
+Join family stuff
+
+```{r}
+htp_participant <- htp_participant %>% 
+  arrange(family_id) %>% 
+  left_join(htp_family_types, by = "family_id") %>% 
+  left_join(htp_relationships %>% select(-sex_original, -family_id), 
+            by = "participantExternalId")
+```
 
 Create final Participant table:
 
@@ -234,6 +285,8 @@ htp_participant <- htp_participant %>%
          ageAtLastVitalStatus = NA) %>% 
   select(all_of(participant_schemalabels)) %>% 
   setNames(participant_displaynames)
+
+##TODO: check against data
 ```
 
 ```{r}
@@ -282,17 +335,26 @@ htp_conditions_subset <- htp_clinical_harmonized %>%
 ```
 
 Add DS Diagnosis (T21 participants only)
-**what about HTP0888?**
+**participants w/ T21 but OfficialDSDiagnosis is blank -> change to Unsure**
+(currently this only applies to HTP0888)
+
 ```{r}
 htp_ds_diagnoses <- htp_clinical_harmonized %>% 
-  select(participantExternalId,
-         source_text = official_ds_diagnosis) %>% 
-  filter(!is.na(source_text)) %>% 
+  select(participantExternalId, karyotype,
+         source_text = official_ds_diagnosis) %>%
+  mutate(source_text_edited = case_when(
+    karyotype == "Trisomy 21" & is.na(source_text) ~ "Unsure",
+    TRUE ~ source_text
+  )) %>% 
+  filter(!is.na(source_text_edited)) %>% 
   distinct() %>%
   mutate(status = "TRUE") %>% 
-  left_join(condition_lookup_htp %>% filter(source_column == "official_ds_diagnosis"),
-            by = c("source_text" = "source_column_value")) %>% 
-  select(-study, -source_column)
+  left_join(condition_lookup_htp %>% 
+              filter(source_column == "official_ds_diagnosis") %>% 
+              unnest(),
+            by = c("source_text_edited" = "source_column_value")) %>% 
+  select(-study,-karyotype, -source_column, -source_text) %>% 
+  rename(source_text = source_text_edited)
 ```
 
 Combine conditions + ds_diagnoses
@@ -334,7 +396,7 @@ htp_measures <- htp_clinical_harmonized %>%
          mondoCode = NA,
          maxoLabel = NA,
          maxoCode = NA
-         ) %>% 
+  ) %>% 
   select(all_of(condition_schemalabels))
 ```
 

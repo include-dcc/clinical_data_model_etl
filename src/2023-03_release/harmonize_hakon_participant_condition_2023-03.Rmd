@@ -1,6 +1,5 @@
 ---
-title: "harmonize Hakon March 2023"
-output: html_notebook
+title: "Harmonize Hakon to LinkML v2 model - March 2023"
 ---
 
 ```{r setup, include=FALSE}
@@ -9,60 +8,306 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(synapser)
 library(readxl)
-library(skimr)
 
 synLogin()
 ```
 
 
-### Initial cleanup:
+Read in data/Initial cleanup:
 
 ```{r}
 hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
 hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
 
 #delete the last few cols since they are for solid tumors
-hakon_clin_all <- hakon_clin_dna %>% 
+hakon_clinical_source <- hakon_clin_dna %>% 
   rbind(hakon_clin_rna) %>% 
-  select(-(`Days to First Event`:last_col()))
+  select(-(`Days to First Event`:`Tumor resection extent`))
+```
+
+Replace headers with working_headers
+See Google sheet `INCLUDE clinical data dictionaries` -> `X01-Hakon`
+```{r}
+gs4_deauth()
+hakon_working_headers <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
+  sheet = "X01-Hakon")
+
+hakon_clinical_source <- setNames(hakon_clinical_source, hakon_working_headers$working_header)
+```
+
+Get ETL plan
+```{r}
+# source("harmonization_setup_2023-03.R")
+
+hakon_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "X01-Hakon")
+```
+
+Participant External ID
+```{r}
+hakon_clinical_harmonized <- hakon_clinical_source %>% 
+  rename(participantExternalId = participant_id) 
+```
+
+## PARTICIPANT
+
+Remove Condition/Sample cols and take distinct (many participants have RNA and DNA)
+```{r}
+hakon_participant <- hakon_clinical_harmonized %>% 
+  select(participantExternalId, starts_with("family"), affected_status,
+         age_at_sample_procurement_days, sex_original, race_original,
+         ethnicity_original, vital_status, age_at_last_known_vital_status) %>% 
+  distinct()
+```
+
+Cols that need transformed:
+- Sex
+- Race
+- Ethnicity
+- DS status
+
+```{r}
+hakon_sex_lookup_values <- hakon_etl_plan %>% 
+  filter(model_slot == "sex") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+hakon_race_lookup_values <- hakon_etl_plan %>% 
+  filter(model_slot == "race") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+hakon_eth_lookup_values <- hakon_etl_plan %>% 
+  filter(model_slot == "ethnicity") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+hakon_ds_lookup_values <- hakon_etl_plan %>% 
+  filter(model_slot == "downSyndromeStatus") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+hakon_vital_lookup_values <- hakon_etl_plan %>% 
+  filter(model_slot == "outcomesVitalStatus") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value) %>% 
+  na_if("NA")
+
+hakon_participant <- hakon_participant %>% 
+  left_join(hakon_sex_lookup_values, by = c("sex_original" = "original_value")) %>% 
+  rename("sex" = model_enum_label) %>% 
+  left_join(hakon_race_lookup_values, by = c("race_original" = "original_value")) %>% 
+  rename("race" = model_enum_label) %>%  
+  left_join(hakon_eth_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
+  rename("ethnicity" = model_enum_label)%>%  
+  left_join(hakon_ds_lookup_values, by = c("affected_status" = "original_value")) %>% 
+  rename("downSyndromeStatus" = model_enum_label) %>% 
+  left_join(hakon_vital_lookup_values, by = c("vital_status" = "original_value")) %>% 
+  rename("outcomesVitalStatus" = model_enum_label) 
+
+#%>% select(participantExternalId, sex_original, sex, race_original, race, ethnicity_original, ethnicity, affected_status, downSyndromeStatus, vital_status, outcomesVitalStatus)
+```
+
+
+Family relationships:
+
+```{r}
+hakon_family_lookup_values <- hakon_etl_plan %>% 
+  filter(model_slot == "familyRelationship") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+hakon_participant <- hakon_participant %>% 
+  left_join(hakon_family_lookup_values, by = c("family_relationship" = "original_value")) %>% 
+  rename("familyRelationship" = model_enum_label) 
+
+# %>% select(participantExternalId, family_relationship, familyRelationship)
+```
+
+Family member IDs - match familyRelationship with column for target ID
+Do each relative type separately b/c chaining multiple unnests acts weird - drops rows 
+```{r}
+hakon_mother_ids <- hakon_participant %>%
+  arrange(family_id) %>% 
+  select(proband_id = family_relationship_target_participant_id, familyRelationship, 
+         participantExternalId) %>%
+  filter(familyRelationship == "Mother") %>% 
+  pivot_wider(names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  rename(motherId = Mother)
+
+hakon_father_ids <- hakon_participant %>%
+  arrange(family_id) %>% 
+  select(proband_id = family_relationship_target_participant_id, familyRelationship, 
+         participantExternalId) %>%
+  filter(familyRelationship == "Father") %>% 
+  pivot_wider(names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  rename(fatherId = Father)  
+
+hakon_sibling_ids <- hakon_participant %>%
+  arrange(family_id) %>% 
+  select(proband_id = family_relationship_target_participant_id, familyRelationship, 
+         participantExternalId) %>%
+  filter(familyRelationship == "Sibling") %>% 
+  pivot_wider(names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  unnest_wider(Sibling, names_sep = "") %>% 
+  unite(col = "siblingId", starts_with("Sibling"), sep = ", ", na.rm = TRUE)
+
+hakon_other_ids <- hakon_participant %>%
+  arrange(family_id) %>% 
+  select(proband_id = family_relationship_target_participant_id, familyRelationship, 
+         participantExternalId) %>%
+  filter(familyRelationship == "Other relative") %>% 
+  pivot_wider(names_from = familyRelationship,
+              values_from = participantExternalId) %>% 
+  unnest_wider(`Other relative`, names_sep = "") %>% 
+  unite(col = "otherFamilyMemberId", starts_with("Other"), sep = ", ", na.rm = TRUE)
+
+hakon_participant <- hakon_participant %>% 
+  arrange(family_id) %>% 
+  left_join(hakon_mother_ids, by = c("participantExternalId" = "proband_id")) %>% 
+  left_join(hakon_father_ids, by = c("participantExternalId" = "proband_id")) %>% 
+  left_join(hakon_sibling_ids, by = c("participantExternalId" = "proband_id")) %>% 
+  left_join(hakon_other_ids, by = c("participantExternalId" = "proband_id"))
+```
+
+
+Family Type:
+- Proband-only: familyRel = Proband AND other ids = NA
+- Duo: familyRel = Proband AND has motherId OR fatherId AND sib & other = NA
+- Trio: familyRel = Proband AND has motherId AND fatherId ANd sib/other = NA
+- Trio+: familyRel = Proband AND has motherId AND fatherId AND sib or other
+
+find rows with 1 non-NA value: https://stackoverflow.com/a/73359219
+
+```{r}
+hakon_family_types <- hakon_participant %>% 
+  filter(familyRelationship == "Proband") %>% 
+  select(participantExternalId, motherId, fatherId, siblingId, otherFamilyMemberId) %>%
+  mutate(family_count = rowSums(!is.na(across(c(motherId, fatherId, siblingId, otherFamilyMemberId))))) %>% 
+  mutate(familyType = case_when(
+    family_count == 0 ~ "Proband-only",
+    family_count == 1 & (!is.na(motherId) | !is.na(fatherId)) ~ "Duo",
+    family_count == 2 & (!is.na(motherId) & !is.na(fatherId)) ~ "Trio",
+    family_count > 2 & (!is.na(motherId) & !is.na(fatherId)) ~ "Trio+",
+    TRUE ~ "Other"
+  ))
+
+hakon_participant <- hakon_participant %>%
+  left_join(hakon_family_types) %>% 
+  arrange(family_id) %>% 
+  group_by(family_id) %>% #fill familyType for non-Probands
+  fill(familyType, .direction = "downup") %>% 
+  ungroup()
+
+#%>% select(participantExternalId, family_id, familyRelationship, familyType)
+
+```
+
+Create final Participant table:
+
+- Fill in info that is same for every participant (mutate)
+- Rename columns that need renamed with schema labels (also mutate)
+- select all Participant columns
+- rename with display names
+
+```{r}
+hakon_participant <- hakon_participant %>% 
+  mutate(studyCode = "X01-Hakon",
+         participantGlobalId = NA,
+         familyId = family_id,
+         ageAtFirstPatientEngagement = as.numeric(age_at_sample_procurement_days),
+         firstPatientEngagementEvent = "Biospecimen collection",
+         ageAtLastVitalStatus = as.numeric(age_at_last_known_vital_status)) %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
 ```
 
 ```{r}
-skim(hakon_clin_all) %>% view()
+write_csv(hakon_participant, here::here("output", "hakon_participant.csv"))
 ```
 
-Check that IDs are unique:
+
+##### CONDITION
+
+Get Hakon conditions
 ```{r}
-n_distinct(hakon_clin_all$`Participant ID`) #1152 (1140 DNA + 12 that only have RNA)
+condition_lookup_hakon <- condition_codes_v3 %>% 
+  filter(study == "X01-Hakon") %>% 
+  mutate(source_column_value = as.character(source_column_value))
 ```
 
-How many participants have both DNA & RNA
+
+Pull conditions from clinical data
+SPECIAL CASE: Replace "Respiratory failure; insufficiency; arrest" with "Respiratory failure, insufficiency, arrest"
 ```{r}
-hakon_clin_all %>% 
-  count(`Participant ID`) %>% 
-  filter(n == 2) #372
+hakon_conditions <- hakon_clinical_harmonized %>% 
+  select(participantExternalId, phenotypes_text) %>% 
+  distinct() %>% #bc pts can have dna & rna
+  mutate(phenotypes_text = str_replace(phenotypes_text, "Respiratory failure; insufficiency; arrest", "Respiratory failure, insufficiency, arrest")) %>% 
+  separate_rows(phenotypes_text, sep = ";") %>% 
+  mutate(phenotypes_text = str_trim(phenotypes_text)) %>%
+  left_join(condition_lookup_hakon, by = c("phenotypes_text" = "source_column_value")) %>% 
+  select(-phenotypes_text, -study, -source_column)
+
+# %>% mutate(ontology_count = rowSums(!is.na(across(c(hpoCode, mondoCode, maxoCode, otherCode))))) 
+# %>% arrange(ontology_count)
+
 ```
 
-Has RNA but not DNA:
+Add DS Diagnosis
 ```{r}
-setdiff(hakon_clin_rna$`Participant ID`, hakon_clin_dna$`Participant ID`) #12
+hakon_ds <- hakon_clinical_harmonized %>% 
+  select(participantExternalId, diagnoses_text, age_at_diagnosis_days) %>%
+  distinct() %>% 
+  filter(!is.na(diagnoses_text)) %>% 
+  left_join(condition_lookup_hakon, by = c("diagnoses_text" = "source_column_value")) %>% 
+  select(-diagnoses_text, -study, -source_column)
+
+hakon_conditions <- hakon_conditions %>% 
+  bind_rows(hakon_ds)
 ```
 
 
-## Pull conditions for annotation:
-
-Then paste into condition_codes_v3 Google Sheet for annotation
-https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=384137116
+Combine conditions + ds_diagnoses
+Create empty/all same value columns
+Select columns in order of DCA template
 
 ```{r}
-hakon_clin_all %>% 
-  select(`Participant ID`, `Phenotypes Text`) %>% 
-  separate_rows(`Phenotypes Text`, sep = ";") %>% 
-  mutate(`Phenotypes Text` = str_trim(`Phenotypes Text`)) %>% 
-  select(-`Participant ID`) %>%
-  distinct() %>%
-  arrange(`Phenotypes Text`) %>% 
-  write_csv(here::here("output", "hakon_conditions_for_annotation.csv"))
-  
+hakon_condition <- hakon_conditions %>% 
+  arrange(participantExternalId) %>% 
+  mutate(eventId = NA,
+         eventType = NA,
+         ageAtConditionMeasureObservation = as.numeric(age_at_diagnosis_days),
+         conditionInterpretation = "Observed",
+         conditionStatus = "History Of",
+         conditionDataSource = "Clinical",
+         measureValue = NA,
+         measureUnit = NA) %>%
+  select(all_of(condition_schemalabels)) %>% 
+  setNames(condition_displaynames)
 ```
+
+```{r}
+write_csv(hakon_condition, here::here("output", "hakon_condition.csv"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
