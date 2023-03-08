@@ -149,7 +149,8 @@ Create empty/all same value columns
 Select columns in order of DCA template
 ```{r}
 bridsr_condition <- khor_condition %>% 
-  mutate(eventId = NA,
+  mutate(studyCode = "BRI-DSR",
+         eventId = NA,
          eventType = NA,
          ageAtConditionMeasureObservation = NA,
          conditionInterpretation = "Observed",

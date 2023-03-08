@@ -20,7 +20,6 @@ de Smith: syn44271573
 DS-Sleep:
 - demo (DCG): syn42114527
 
-**should we share the clinical data if sample failed seq? I think so**
 
 
 ### de Smith:
@@ -39,7 +38,7 @@ n_distinct(desmith_clin$WPSID) #476
 ```
 
 
-Cols that are <chr> but should contain numbers:
+Cols that are <chr> due to "nk" but should contain numbers:
 Age at enrollment
 Gestational age at birth
 Birthweight

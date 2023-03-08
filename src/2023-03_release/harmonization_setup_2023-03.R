@@ -22,6 +22,8 @@ etl_to_linkml_plan <- read_sheet(
 
 # workaround so I can work with schema labels in R and then replace with display names 
 # before passing to schematic validate
+# edit here and save as csv: 
+# https://docs.google.com/spreadsheets/d/1vDdcqt3Lgehyq1iCnlF1H9JZi63pLj-u/edit#gid=2039347068
 displayname_schemalabel_lookup <- read_csv(
   here::here("data", "displaynames_schemalabels_March_2023.csv"))
 

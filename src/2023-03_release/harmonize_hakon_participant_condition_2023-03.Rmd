@@ -29,6 +29,7 @@ Replace headers with working_headers
 See Google sheet `INCLUDE clinical data dictionaries` -> `X01-Hakon`
 ```{r}
 gs4_deauth()
+
 hakon_working_headers <- read_sheet(
   "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
   sheet = "X01-Hakon")
@@ -271,6 +272,18 @@ hakon_conditions <- hakon_conditions %>%
   bind_rows(hakon_ds)
 ```
 
+Add age at condition observation (from Hakon, added directly to Condition table)
+```{r}
+hakon_condition_ages <- read_xlsx(synGet("syn51181708")$path) %>% 
+  select(participant_external_id, condition_or_measure_source_text, age_at_condition_or_measure_observation)
+
+hakon_conditions <- hakon_conditions %>% 
+  left_join(hakon_condition_ages,
+            by = c("participantExternalId" = "participant_external_id",
+                   "conditionMeasureSourceText" = "condition_or_measure_source_text"))
+
+```
+
 
 Combine conditions + ds_diagnoses
 Create empty/all same value columns
@@ -279,9 +292,10 @@ Select columns in order of DCA template
 ```{r}
 hakon_condition <- hakon_conditions %>% 
   arrange(participantExternalId) %>% 
-  mutate(eventId = NA,
+  mutate(studyCode = "X01-Hakon",
+         eventId = NA,
          eventType = NA,
-         ageAtConditionMeasureObservation = as.numeric(age_at_diagnosis_days),
+         ageAtConditionMeasureObservation = as.numeric(age_at_condition_or_measure_observation),
          conditionInterpretation = "Observed",
          conditionStatus = "History Of",
          conditionDataSource = "Clinical",

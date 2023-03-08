@@ -26,6 +26,7 @@ Replace headers with working_headers
 See Google sheet `INCLUDE clinical data dictionaries` -> `HTP`
 ```{r}
 gs4_deauth()
+
 htp_working_headers <- read_sheet(
   "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=0",
   sheet = "HTP")
@@ -364,7 +365,8 @@ Select columns in order of DCA template
 htp_conditions <- htp_ds_diagnoses %>% 
   rbind(htp_conditions_subset) %>% 
   arrange(participantExternalId) %>% 
-  mutate(eventId = NA,
+  mutate(studyCode = "HTP",
+         eventId = NA,
          eventType = NA,
          ageAtConditionMeasureObservation = NA,
          conditionInterpretation = "Observed",
@@ -385,7 +387,8 @@ htp_measures <- htp_clinical_harmonized %>%
                values_to = "measureValue") %>% 
   left_join(measure_lookup_htp %>% filter(study == "HTP"),
             by = c("source_text" = "source_column")) %>% 
-  mutate(eventId = event_name,
+  mutate(studyCode = "HTP",
+         eventId = event_name,
          eventType = "Visit",
          ageAtConditionMeasureObservation = age_at_visit_days,
          conditionInterpretation = NA,
@@ -395,7 +398,8 @@ htp_measures <- htp_clinical_harmonized %>%
          mondoLabel = NA,
          mondoCode = NA,
          maxoLabel = NA,
-         maxoCode = NA
+         maxoCode = NA,
+         measureValue = as.numeric(measureValue)
   ) %>% 
   select(all_of(condition_schemalabels))
 ```
