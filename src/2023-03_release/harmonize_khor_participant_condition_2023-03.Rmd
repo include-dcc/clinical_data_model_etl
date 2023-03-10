@@ -125,7 +125,7 @@ write_csv(bridsr_participant, here::here("output", "bridsr_participant.csv"))
 
 ##### CONDITION
 
-Get Khor conditions & measures
+Get Khor condition & measure codes
 ```{r}
 condition_lookup_khor <- condition_codes_v3 %>% filter(study == "BRI-DSR")
 ```

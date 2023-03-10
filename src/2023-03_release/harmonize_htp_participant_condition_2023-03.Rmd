@@ -297,7 +297,7 @@ write_csv(htp_participant, here::here("output", "htp_participant.csv"))
 
 ##### CONDITION
 
-Get HTP conditions & measures
+Get HTP condition & measure codes
 ```{r}
 condition_lookup_htp <- condition_codes_v3 %>% filter(study == "HTP")
 measure_lookup_htp <- measure_codes_v3 %>% filter(study == "HTP")
@@ -382,6 +382,10 @@ Measures:
 ```{r}
 htp_measures <- htp_clinical_harmonized %>% 
   select(participantExternalId, event_name, bmi, weight_kg, height_cm, age_at_visit_days) %>% 
+  #round to number of decimals specified in measure_codes_v3
+  mutate(bmi = round(as.numeric(bmi), 1),
+         weight_kg = round(as.numeric(weight_kg), 1),
+         height_cm = round(as.numeric(height_cm), 1)) %>% 
   pivot_longer(cols = c(bmi, weight_kg, height_cm),
                names_to = "source_text",
                values_to = "measureValue") %>% 

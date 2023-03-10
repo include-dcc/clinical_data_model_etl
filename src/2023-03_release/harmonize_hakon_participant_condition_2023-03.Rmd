@@ -234,7 +234,7 @@ write_csv(hakon_participant, here::here("output", "hakon_participant.csv"))
 
 ##### CONDITION
 
-Get Hakon conditions
+Get Hakon condition codes
 ```{r}
 condition_lookup_hakon <- condition_codes_v3 %>% 
   filter(study == "X01-Hakon") %>% 

@@ -1,0 +1,234 @@
+---
+title: "Harmonize de Smith clinical data to LinkML v2 model - March 2023"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+```
+
+Read in data:
+
+```{r}
+desmith_clinical_source <- read_xlsx(synGet("syn44271573")$path)
+```
+
+Replace headers with working_headers
+See Google sheet `INCLUDE clinical data dictionaries` -> `X01-deSmith`
+```{r}
+gs4_deauth()
+
+desmith_working_headers <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=115820483",
+  sheet = "X01-deSmith")
+
+desmith_clinical_source <- setNames(desmith_clinical_source, desmith_working_headers$working_header)
+```
+
+
+Cols that are <chr> due to "nk" but should contain numbers:
+gestational_age_at_birth_weeks
+birthweight_kg
+age_at_last_known_vital_status_days
+platelets_at_birth
+peripheral_blood_blasts_at_birth
+
+- replace nk with `NA`
+- convert misclassified cols to numeric
+
+**TODO: Fix issues with decimal places**
+```{r}
+# use datapasta to make vector
+misclassified <- c("gestational_age_at_birth_weeks", "Birthweight", "age_at_last_known_vital_status_days", "platelets_at_birth", "peripheral_blood_blasts_at_birth")
+
+desmith_clinical_harmonized <- desmith_clinical_source %>% 
+  mutate(across(matches(misclassified), ~na_if(., "nk"))) %>% 
+  mutate(across(matches(misclassified), ~as.numeric(.))) %>% 
+  rename(participantExternalId = wpsid) 
+``` 
+
+
+Get ETL plan
+```{r}
+# source("harmonization_setup_2023-03.R")
+
+desmith_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "X01-deSmith")
+```
+
+
+
+##### PARTICIPANT
+
+Remove Condition & Measure cols
+```{r}
+desmith_participant <- desmith_clinical_harmonized %>% 
+  select(participantExternalId, age_at_enrollment, sex_original, race_ethnicity, 
+         vital_status, age_at_last_known_vital_status_days) %>% 
+  distinct()
+```
+
+
+Sex, Race (Ethnicity = Unknown):
+```{r}
+desmith_sex_lookup_values <- desmith_etl_plan %>% 
+  filter(model_slot == "sex") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+desmith_race_lookup_values <- desmith_etl_plan %>% 
+  filter(model_slot == "race") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+desmith_ethnicity_lookup_values <- desmith_etl_plan %>% 
+  filter(model_slot == "ethnicity") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+desmith_vital_lookup_values <- desmith_etl_plan %>% 
+  filter(model_slot == "outcomesVitalStatus") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+desmith_participant <- desmith_participant %>% 
+  left_join(desmith_race_lookup_values, by = c("race_ethnicity" = "original_value")) %>% 
+  rename(race = model_enum_label) %>% 
+  left_join(desmith_ethnicity_lookup_values, by = c("race_ethnicity" = "original_value")) %>% 
+  rename(ethnicity = model_enum_label) %>% 
+  left_join(desmith_sex_lookup_values, by = c("sex_original" = "original_value")) %>% 
+  rename(sex = model_enum_label)  %>% 
+  left_join(desmith_vital_lookup_values, by = c("vital_status" = "original_value")) %>%
+  rename(outcomesVitalStatus = model_enum_label)
+
+#%>% select(participantExternalId, race_ethnicity, race, ethnicity, sex_original, sex)
+```
+
+
+Create final Participant table:
+
+- Fill in info that is same for every participant (mutate)
+- Rename columns that need renamed with schema labels (also mutate)
+- select all Participant columns
+- rename with display names
+
+```{r}
+desmith_participant <- desmith_participant %>% 
+  mutate(studyCode = "X01-deSmith",
+         participantGlobalId = NA,
+         familyId = NA,
+         familyType = NA,
+         fatherId = NA,
+         motherId = NA,
+         siblingId = NA,
+         otherFamilyMemberId = NA,
+         familyRelationship = NA,
+         ethnicity = "Unknown",
+         downSyndromeStatus = "T21",
+         ageAtFirstPatientEngagement = age_at_enrollment,
+         firstPatientEngagementEvent = "Enrollment",
+         ageAtLastVitalStatus = age_at_last_known_vital_status_days) %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
+
+##TODO: check against data
+```
+
+```{r}
+write_csv(desmith_participant, here::here("output", "desmith_participant.csv"))
+```
+
+
+##### CONDITION
+
+Get condition & measure codes
+```{r}
+condition_lookup_desmith <- condition_codes_v3 %>% filter(study == "X01-deSmith") %>% 
+  unnest(source_column_value)
+measure_lookup_desmith <- measure_codes_v3 %>% filter(study == "X01-deSmith")
+```
+
+```{r}
+desmith_conditions <- desmith_clinical_harmonized %>% 
+  select(participantExternalId, gata1_mutation, clinical_tam, ml_ds, ds_all, 
+         maternal_diabetes, congenital_heart_defects, other_birth_defects,
+         thrombocytopenia, anemia, polycythemia) %>%
+  #all pts have Down syndrome
+  mutate(ds_diagnosis = "Down syndrome") %>% 
+  pivot_longer(cols = c(-participantExternalId),
+               names_to = "source_text",
+               values_to = "status") %>% 
+  left_join(condition_lookup_desmith, by = c("source_text" = "source_column",
+                                             "status" = "source_column_value")) %>%
+  filter(!is.na(conditionMeasureSourceText)) %>% 
+  select(-study)
+
+```
+
+Create empty/all same value columns
+Select columns in order of DCA template
+```{r}
+desmith_conditions <- desmith_conditions %>% 
+  arrange(participantExternalId) %>% 
+  mutate(studyCode = "X01-deSmith",
+         eventId = NA,
+         eventType = NA,
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = "Observed",
+         conditionStatus = "History Of",
+         conditionDataSource = "Clinical",
+         measureValue = NA,
+         measureUnit = NA) %>%
+  select(all_of(condition_schemalabels))
+
+```
+
+Measures:
+
+```{r}
+desmith_measures <- desmith_clinical_harmonized %>% 
+  select(participantExternalId, gestational_age_at_birth_weeks, birthweight_kg, hb_at_birth,
+         wbc_at_birth, platelets_at_birth, peripheral_blood_blasts_at_birth, hematocrit) %>%
+  pivot_longer(cols = c(-participantExternalId),
+               names_to = "source_text",
+               values_to = "measureValue") %>% 
+  left_join(measure_lookup_desmith, by = c("source_text" = "source_column")) %>% 
+  mutate(studyCode = "X01-deSmith",
+         eventId = NA,
+         eventType = NA,
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = NA,
+         conditionStatus = NA, 
+         conditionDataSource = NA,
+         hpoLabel = NA,
+         hpoCode = NA,
+         mondoLabel = NA,
+         mondoCode = NA,
+         maxoLabel = NA,
+         maxoCode = NA,
+  ) %>% 
+  select(all_of(condition_schemalabels))
+
+#TODO: how to preserve decimal places after pivot_longer
+```
+
+
+Join conditions & measures, rename with display names
+
+```{r}
+desmith_condition <- desmith_conditions %>% 
+  rbind(desmith_measures) %>% 
+  arrange(participantExternalId) %>% 
+  setNames(condition_displaynames)
+```
+
+
+```{r}
+write_csv(desmith_condition, here::here("output", "desmith_condition.csv"))
+```
