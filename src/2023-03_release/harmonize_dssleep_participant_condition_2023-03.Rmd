@@ -1,0 +1,170 @@
+---
+title: "Harmonize DS-Sleep clinical data to LinkML v2 model - March 2023"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+```
+
+Read in data:
+
+```{r}
+dssleep_clinical_source <- read_xlsx(synGet("syn42114527")$path)
+```
+
+Replace headers with working_headers
+See Google sheet `INCLUDE clinical data dictionaries` -> `DS-Sleep_demographics`
+```{r}
+gs4_deauth()
+
+dssleep_working_headers <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw/edit#gid=1550573864",
+  sheet = "DS-Sleep_demographic")
+
+dssleep_clinical_source <- setNames(dssleep_clinical_source, dssleep_working_headers$working_header)
+```
+
+
+Get ETL plan
+```{r}
+# source("harmonization_setup_2023-03.R")
+
+dssleep_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "DS-Sleep")
+```
+
+
+
+##### PARTICIPANT
+
+Remove Condition & Measure cols
+```{r}
+dssleep_participant <- dssleep_clinical_source %>% 
+  select(-study_name, -ds_diagnosis,
+         -age_at_first_recorded_study_event) %>% 
+  rename(participantExternalId = participant_external_id)
+```
+
+
+Sex, Race (Ethnicity = Unknown):
+```{r}
+dssleep_ethnicity_lookup_values <- dssleep_etl_plan %>% 
+  filter(model_slot == "ethnicity") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+dssleep_familyrel_lookup_values <- dssleep_etl_plan %>% 
+  filter(model_slot == "familyRelationship") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+dssleep_familytype_lookup_values <- dssleep_etl_plan %>% 
+  filter(model_slot == "familyType") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+dssleep_ds_lookup_values <- dssleep_etl_plan %>% 
+  filter(model_slot == "downSyndromeStatus") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value) %>% 
+  na_if("NA")
+
+dssleep_participant <- dssleep_participant %>% 
+  left_join(dssleep_ethnicity_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
+  rename(ethnicity = model_enum_label) %>% 
+  left_join(dssleep_familyrel_lookup_values, by = c("family_relationship" = "original_value")) %>% 
+  rename(familyRelationship = model_enum_label) %>% 
+  left_join(dssleep_familytype_lookup_values, by = c("family_type" = "original_value")) %>%
+  rename(familyType = model_enum_label) %>% 
+  left_join(dssleep_ds_lookup_values, by = c("ds_status" = "original_value")) %>%
+  rename(downSyndromeStatus = model_enum_label) 
+ 
+ #%>% select(participantExternalId, ethnicity_original, ethnicity, family_relationship, familyRelationship, family_type, familyType, ds_status, downSyndromeStatus)
+```
+
+Family:
+- change "NA" and "N/A" in father_id and mother_id to `NA`
+- family 113 has twin Probands -> add Sibling IDs manually
+
+```{r}
+dssleep_participant <- dssleep_participant %>% 
+  mutate(father_id = na_if(father_id, "NA"),
+         father_id = na_if(father_id, "N/A"),
+         mother_id = na_if(mother_id, "NA"),
+         mother_id = na_if(mother_id, "N/A"),
+         sibling_id = case_when(participantExternalId == "RDoC_113_P1" ~ "RDoC_113_P2",
+                                participantExternalId == "RDoC_113_P2" ~ "RDoC_113_P1"))
+```
+
+
+Create final Participant table:
+
+- Fill in info that is same for every participant (mutate)
+- Rename columns that need renamed with schema labels (also mutate)
+- select all Participant columns
+- rename with display names
+
+```{r}
+dssleep_participant %>% 
+  mutate(studyCode = "DS-Sleep",
+         participantGlobalId = NA,
+         familyId = family_id,
+         fatherId = father_id,
+         motherId = mother_id,
+         sex = sex_original,
+         race = race_original,
+         siblingId = sibling_id,
+         otherFamilyMemberId = NA,
+         ageAtFirstPatientEngagement = age_at_registration_days,
+         firstPatientEngagementEvent = "Enrollment",
+         outcomesVitalStatus = NA,
+         ageAtLastVitalStatus = NA) %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
+
+##TODO: check against data
+```
+
+```{r}
+write_csv(dssleep_participant, here::here("output", "dssleep_participant.csv"))
+```
+
+
+##### CONDITION
+
+Get condition codes
+```{r}
+condition_lookup_dssleep <- condition_codes_v3 %>% filter(study == "DS-Sleep") %>% 
+  unnest(source_column_value)
+```
+
+
+```{r}
+dssleep_condition <- dssleep_clinical_source %>% 
+  select(participantExternalId = participant_external_id, ds_diagnosis) %>%
+  left_join(condition_lookup_dssleep, by = c("ds_diagnosis" = "source_column_value")) %>%
+  filter(!is.na(conditionMeasureSourceText)) %>% 
+  mutate(studyCode = study,
+         eventId = NA,
+         eventType = NA,
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = "Observed",
+         conditionStatus = "History Of",
+         conditionDataSource = "Clinical",
+         measureValue = NA,
+         measureUnit = NA) %>%
+  select(all_of(condition_schemalabels)) %>% 
+  setNames(condition_displaynames)
+```
+
+
+```{r}
+write_csv(dssleep_condition, here::here("output", "dssleep_condition.csv"))
+```
