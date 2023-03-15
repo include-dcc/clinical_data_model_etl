@@ -1,48 +1,20 @@
 library(tidyverse)
+library(googlesheets4)
 
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "HTP", "Crnic Institute Human Trisome Project", "INCLUDE", "phs002330", "TBD"
-) %>% 
-  write_csv(here::here("output", "htp_study.csv"))
+# deactivate need for Google Auth since these sheets are accessible with link
+gs4_deauth()
 
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "BRI-DSR", "Benaroya Research Institute Down Syndrome Registry", 
-  "INCLUDE", NA, NA) %>% 
-  write_csv(here::here("output", "bridsr_study.csv"))
+# read in sheet with metadata for all studies
+study_all <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit?pli=1#gid=726242842",
+  sheet = "study_metadata_2023-03")
 
+# get each study and write to csv
+get_individual_study <- function(study_code){
+  
+  individual <- study_all %>% filter(`Study Code` == study_code)
+  
+  write_csv(individual, here::here("output", paste0(study_code, "_study.csv")))
+  }
 
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "ABC-DS", "Alzheimer's Biomarker Consortium - Down Syndrome", "INCLUDE", NA, NA
-) %>% 
-  write_csv(here::here("output", "abcds_study.csv"))
-
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "DSC", "DS-Connect-The Down Syndrome Registry", "INCLUDE", NA, NA
-) %>% 
-  write_csv(here::here("output", "dsc_study.csv"))
-
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "DS-Sleep", "Dimensional, Sleep, and Genomic Analyses of 
-  Down Syndrome to Elucidate Phenotypic Variability", "INCLUDE", NA, NA
-) %>% 
-  write_csv(here::here("output", "dssleep_study.csv"))
-
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "X01-deSmith", "The epidemiology of transient leukemia in newborns 
-  with Down syndrome", "INCLUDE", NA, NA
-) %>% 
-  write_csv(here::here("output", "desmith_study.csv"))
-
-tribble(
-  ~`Study Code`, ~`Study Name`, ~Program, ~dbGaP, ~`Virtual Biorepository Contact`,
-  "X01-Hakon", "Genetic Underpinnings of the Multifactorial 
-  Phenotype of Trisomy 21 Patients Unveiled by Multi-Omics Approaches", 
-  "INCLUDE", NA, NA
-) %>% 
-  write_csv(here::here("output", "hakon_study.csv"))
+walk(study_all$`Study Code`, get_individual_study)

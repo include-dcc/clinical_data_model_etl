@@ -99,15 +99,13 @@ abcds_etl_plan <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6
 Bring in ABCDS_ID_DS from linkage table
 Family ID = ABCDS_ID_DS if exists, otherwise = `NA`
 ```{r}
-has_siblings <- abcds_control_linkage %>% pull(ABCDS_ID_DS)
-
 abcds_demo_BL_harmonized <- abcds_demo_BL %>%  
   left_join(abcds_control_linkage %>% select(ABCDS_ID_SC, ABCDS_ID_DS),
             by = c("subject_label" = "ABCDS_ID_SC"), keep = TRUE) %>% 
   relocate(ABCDS_ID_DS, .after = subject_label) %>% 
   mutate(familyId = case_when(
     !is.na(ABCDS_ID_DS) ~ ABCDS_ID_DS,
-    subject_label %in% has_siblings ~ subject_label
+    subject_label %in% abcds_control_linkage$ABCDS_ID_DS ~ subject_label
   ), .after = subject_label) %>% 
   arrange(subject_label)
 ```
@@ -151,7 +149,6 @@ abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>%
 ```
 
 Sex, Race, Ethnicity, DS status
-**Remove "|" from Race**
 
 ```{r}
 abcds_sex_lookup_values <- abcds_etl_plan %>% 
