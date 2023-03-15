@@ -389,7 +389,7 @@ htp_measures <- htp_clinical_harmonized %>%
   pivot_longer(cols = c(bmi, weight_kg, height_cm),
                names_to = "source_text",
                values_to = "measureValue") %>% 
-  left_join(measure_lookup_htp %>% filter(study == "HTP"),
+  left_join(measure_lookup_htp,
             by = c("source_text" = "source_column")) %>% 
   mutate(studyCode = "HTP",
          eventId = event_name,

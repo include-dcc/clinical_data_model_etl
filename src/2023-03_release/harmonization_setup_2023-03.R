@@ -22,8 +22,6 @@ etl_to_linkml_plan <- read_sheet(
 
 # workaround so I can work with schema labels in R and then replace with display names 
 # before passing to schematic validate
-# edit here and save as csv: 
-# https://docs.google.com/spreadsheets/d/1vDdcqt3Lgehyq1iCnlF1H9JZi63pLj-u/edit#gid=2039347068
 displayname_schemalabel_lookup <- read_csv(
   here::here("data", "displaynames_schemalabels_March_2023.csv"))
 
@@ -44,3 +42,55 @@ condition_schemalabels <- displayname_schemalabel_lookup %>%
 condition_displaynames <- displayname_schemalabel_lookup %>% 
   filter(component == "Condition") %>% 
   pull(display_name)
+
+datafile_schemalabels <- displayname_schemalabel_lookup %>% 
+  filter(component == "DataFile") %>% 
+  pull(schema_label)
+
+datafile_displaynames <- displayname_schemalabel_lookup %>% 
+  filter(component == "DataFile") %>% 
+  pull(display_name)
+
+
+# add folders to Synapse projects
+
+synapse_projects <- read_sheet("https://docs.google.com/spreadsheets/d/1wNtmceBQwZu71gmQ1Z48yqNdV0zNu9WfZJ5IAhoRnMw/edit#gid=640167620",
+                               sheet = "synapse_setup") %>% 
+  select(study_code, project_synid) %>% 
+  filter(study_code %in% c("ABC-DS", "HTP", "DSC", "X01-deSmith", "X01-Hakon", 
+                           "DS-Sleep", "BRI-DSR"))
+
+
+create_folders <- function(input_project_id){
+  synStore(Folder("2023-03_Study", parent = input_project_id))
+  synStore(Folder("2023-03_Participant", parent = input_project_id))
+  synStore(Folder("2023-03_Condition", parent = input_project_id))
+  synStore(Folder("2023-03_Biospecimen", parent = input_project_id))
+  synStore(Folder("2023-03_DataFile", parent = input_project_id))
+}
+
+# walk(synapse_projects$project_synid, create_folders)
+
+get_folder_ids <- function(study){
+  input_project_id <- synapse_projects %>% filter(study_code == study) %>% pull(project_synid)
+  
+  print(paste0("Study = ", synFindEntityId("2023-03_Study", parent = input_project_id)))
+  print(paste0("Participant = ", synFindEntityId("2023-03_Participant", parent = input_project_id)))
+  print(paste0("Condition = ", synFindEntityId("2023-03_Condition", parent = input_project_id)))
+  print(paste0("Biospecimen = ", synFindEntityId("2023-03_Biospecimen", parent = input_project_id)))
+  print(paste0("DataFile = ", synFindEntityId("2023-03_DataFile", parent = input_project_id)))
+}
+
+# get_folder_ids("HTP")
+
+
+
+
+
+
+
+
+
+
+
+

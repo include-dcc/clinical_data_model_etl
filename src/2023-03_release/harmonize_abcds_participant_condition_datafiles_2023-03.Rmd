@@ -1,0 +1,399 @@
+---
+title: "Harmonize ABCDS clinical data & assemble file manifest, March 2023"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+
+synLogin()
+```
+
+Read in data
+```{r}
+# control & DS demographics
+abcds_demo_ctl <- read_csv(synGet("syn33401283")$path)
+abcds_demo_ds <- read_csv(synGet("syn33401291")$path)
+
+# control & DS health histories
+abcds_health_ctl <- read_csv(synGet("syn33401148")$path)
+abcds_health_ds <- read_csv(synGet("syn33401163")$path)
+
+# DS karyotypes
+abcds_karyo_ds <- read_csv(synGet("syn33401175")$path)
+
+# link between controls & DS siblings
+abcds_control_linkage <- read_xlsx(synGet("syn34654889")$path)
+
+# age at event
+abcds_age_ctl <- read_csv(synGet("syn33401687")$path)
+abcds_age_ds <- read_csv(synGet("syn33401689")$path) 
+```
+
+
+Combine DS and control subjects
+```{r}
+abcds_health_all <- rbind(abcds_health_ds, abcds_health_ctl)
+abcds_demo_all <- rbind(abcds_demo_ds, abcds_demo_ctl)
+abcds_age_all <- rbind(abcds_age_ctl, abcds_age_ds)
+```
+
+
+Data checks [from Oct 2022]
+```{r}
+#417 unique subjects, no setdiff between health & demo
+n_distinct(health_all$subject_label)
+n_distinct(demo_all$subject_label)
+setdiff(health_all$subject_label, demo_all$subject_label)
+
+# most patients have both Baseline & Cycle 2 health & demo
+health_all %>% count(subject_label) %>% arrange(n)
+demo_all %>% count(subject_label) %>% arrange(desc(n))
+
+# the demo cols we're interested in are the same at both timepoints
+demo_all %>% select(subject_label, de_gender, de_race, de_ethnicity, ds_vs_control_flag) %>% 
+  distinct() %>% count(subject_label) %>% arrange(desc(n))
+
+# there are changes in hh between the 2 timepoints - asked ABCDS team what to do (FOR NOW - use baseline data only)
+health_all %>% select(subject_label, starts_with("hh")) %>% 
+  distinct() %>% count(subject_label) %>% arrange(desc(n))
+
+# controls - how many have DS sibs
+n_distinct(demo_ctl$subject_label)
+n_distinct(control_linkage$ABCDS_ID_SC)
+
+# 10233 10224 10237 10235 are sibs in the linkage sheet who don't have any data
+setdiff(control_linkage$ABCDS_ID_SC, demo_ctl$subject_label)
+```
+
+
+FOR NOW: limit to Baseline data only (still for March 2023)
+```{r}
+abcds_health_BL <- abcds_health_all %>% filter(event_code == "bl")
+abcds_demo_BL <- abcds_demo_all %>% filter(event_code == "bl")
+abcds_age_BL <- abcds_age_all %>% filter(event_code == "bl")
+
+# setdiff(demo_BL$subject_label, health_BL$subject_label)
+# 2 subjects, 23001 and 23002, don't have baseline health histories
+```
+
+##### PARTICIPANT
+
+
+Get ETL plan
+Special import of condition_codes_v3 with col type specification
+  (having mixed numeric & char values causes error when unnesting)
+```{r}
+gs4_deauth()
+
+abcds_etl_plan <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit?pli=1#gid=963585824",
+           sheet = "etl_to_linkml_plan",
+           col_types = "c") %>% 
+  filter(study == "ABC-DS")
+```
+
+
+Bring in ABCDS_ID_DS from linkage table
+Family ID = ABCDS_ID_DS if exists, otherwise = `NA`
+```{r}
+has_siblings <- abcds_control_linkage %>% pull(ABCDS_ID_DS)
+
+abcds_demo_BL_harmonized <- abcds_demo_BL %>%  
+  left_join(abcds_control_linkage %>% select(ABCDS_ID_SC, ABCDS_ID_DS),
+            by = c("subject_label" = "ABCDS_ID_SC"), keep = TRUE) %>% 
+  relocate(ABCDS_ID_DS, .after = subject_label) %>% 
+  mutate(familyId = case_when(
+    !is.na(ABCDS_ID_DS) ~ ABCDS_ID_DS,
+    subject_label %in% has_siblings ~ subject_label
+  ), .after = subject_label) %>% 
+  arrange(subject_label)
+```
+
+Family Type:
+"Proband-only" if family_id = NA
+"Other" if not NA
+**may want to add "Siblings" to Family Type in schema**
+
+```{r}
+abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>% 
+  mutate(familyType = if_else(is.na(familyId), "Proband-only", "Other")) 
+
+#%>% select(subject_label, family_id, familyType, ds_vs_control_flag)
+```
+
+Family relationships:
+
+```{r}
+abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>% 
+  mutate(familyRelationship = case_when(
+    ds_vs_control_flag == "DS" ~ "Proband",
+    ds_vs_control_flag == "Control" ~ "Sibling"
+  )) 
+
+#%>% select(subject_label, family_id, ABCDS_ID_DS, ABCDS_ID_SC, familyType, ds_vs_control_flag, familyRelationship)
+```
+
+Family IDs
+
+```{r}
+sibling_ids <- abcds_control_linkage %>% 
+  rename(subject_label = ABCDS_ID_DS,
+         siblingId = ABCDS_ID_SC) %>% 
+  select(subject_label, siblingId)
+
+abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>% 
+  left_join(sibling_ids) 
+
+#%>% select(subject_label, family_id, siblingId)
+```
+
+Sex, Race, Ethnicity, DS status
+**Remove "|" from Race**
+
+```{r}
+abcds_sex_lookup_values <- abcds_etl_plan %>% 
+  filter(model_slot == "sex") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value) %>%
+  mutate(original_value = as.double(original_value))
+
+abcds_race_lookup_values <- abcds_etl_plan %>% 
+  filter(model_slot == "race") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+abcds_ethnicity_lookup_values <- abcds_etl_plan %>% 
+  filter(model_slot == "ethnicity") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value) %>%
+  mutate(original_value = as.double(original_value))
+
+abcds_ds_lookup_values <- abcds_etl_plan %>% 
+  filter(model_slot == "downSyndromeStatus") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>%
+  # remove "|" from de_race
+  #mutate(de_race = as.double(str_replace_all(de_race, "[^[:digit:]]", ""))) %>% 
+  left_join(abcds_sex_lookup_values, by = c("de_gender" = "original_value")) %>% 
+  rename("sex" = model_enum_label) %>% 
+  left_join(abcds_race_lookup_values, by = c("de_race" = "original_value")) %>% 
+  rename("race" = model_enum_label) %>%  
+  left_join(abcds_ethnicity_lookup_values, by = c("de_ethnicity" = "original_value")) %>%   rename("ethnicity" = model_enum_label)%>%  
+  left_join(abcds_ds_lookup_values, by = c("ds_vs_control_flag" = "original_value")) %>% 
+  rename("downSyndromeStatus" = model_enum_label) 
+
+#%>% select(subject_label, de_gender, sex, de_race, race, de_ethnicity, ethnicity, ds_vs_control_flag, downSyndromeStatus)
+
+```
+
+Age at baseline visit
+
+```{r}
+abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>% 
+  left_join(abcds_age_BL %>% select(subject_label, age_at_visit))
+```
+
+
+Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
+
+```{r}
+abcds_participant <- abcds_demo_BL_harmonized %>% 
+  mutate(studyCode = "ABC-DS",
+         participantGlobalId = NA,
+         participantExternalId = subject_label,
+         fatherId = NA,
+         motherId = NA,
+         otherFamilyMemberId = NA,
+         ageAtFirstPatientEngagement = round(age_at_visit*365.25, 0),
+         firstPatientEngagementEvent = "Baseline visit",
+         outcomesVitalStatus = NA,
+         ageAtLastVitalStatus = NA) %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
+```
+
+```{r}
+write_csv(abcds_participant, here::here("output", "abcds_participant.csv"))
+```
+
+
+##### CONDITION
+
+Get condition codes (no Measures allowed for ABC-DS)
+Special import of condition_codes_v3 with col type specification
+  (having mixed numeric & char values causes error when unnesting)
+```{r}
+gs4_deauth()
+
+condition_lookup_abcds <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit?pli=1#gid=384137116",
+           sheet = "condition_codes_v3",
+           col_types = "c") %>% 
+  filter(study == "ABC-DS") %>% 
+  mutate(source_column_value = na_if(source_column_value, "NA"))
+```
+
+- Remove columns that won't be harmonized (either for Sept, or ever)
+ie. highlighted in grey or blue in `abcds_dic_harmonizing.xlsx`
+- Pull in karyotype
+
+```{r}
+abcds_health_BL_harmonized <- abcds_health_BL %>% 
+  select(-c(site_id, event_code, event_label, hh_cancer, hh_diabetes, hh_done, hh_fracture_5yr, hh_fracture_loc, ends_with("status"), ends_with("treated"), hh_hep_b_carrier, hh_hep_b_immune, hh_hep_b_vaccine, starts_with("hh_hrt_"), hh_menopausal, hh_menopausal_onset, hh_menopausal_status, hh_menstruated, hh_ndreason, update_stamp)) %>% 
+  left_join(abcds_karyo_ds %>% select(subject_label, karyotype))
+```
+
+Get conditions:
+
+Cols where NA matters (highlighted yellow in condition_codes_v3):
+- if hh_anemia = 1 AND hh_anemia_type = NA -> "blank AND hh_anemia = 1"
+- if hh_chd = 1 AND hh_chd_type = NA ~ hh_chd_type -> "blank AND hh_chd = 1"
+    10065
+    20441
+    21306
+    21381
+    22768
+Make all cols char so I can pivot longer
+Pivot longer
+split cells with | using separate_rows
+
+```{r}
+# first fix the special cases for hh_anemia and hh_chd
+abcds_BL_conditions <- abcds_health_BL_harmonized %>%
+  mutate(hh_chd_type = ifelse(hh_chd == 1 & is.na(hh_chd_type), "blank AND hh_chd = 1", hh_chd_type)) %>% 
+  mutate(hh_anemia_type = ifelse(hh_anemia == 1 & is.na(hh_anemia_type), "blank AND hh_anemia = 1", hh_anemia_type)) %>% 
+  select(-hh_chd, -hh_anemia) %>% 
+  # then pivot longer
+  mutate(across(everything(), as.character)) %>% 
+  pivot_longer(cols = -subject_label,
+               names_to = "condition",
+               values_to = "status") %>% 
+  # keep positive assertions
+  filter(status != "0") %>% 
+  # separate out multi-responses
+  separate_rows(status, sep = "\\|") %>% 
+  # look up annotations
+  left_join(condition_lookup_abcds, by = c("condition" = "source_column", "status" = "source_column_value"))
+```
+
+
+Create empty/all same value columns
+Select columns in order of DCA template
+```{r}
+abcds_condition <- abcds_BL_conditions %>% 
+  mutate(studyCode = "ABC-DS",
+         participantExternalId = subject_label,
+         eventId = "Baseline",
+         eventType = "Visit",
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = "Observed",
+         conditionDataSource = "Clinical",
+         conditionStatus = "History Of",
+         measureValue = NA,
+         measureUnit = NA) %>%
+  select(all_of(condition_schemalabels)) %>% 
+  setNames(condition_displaynames)
+  
+```
+
+```{r}
+write_csv(abcds_condition, here::here("output", "abcds_condition.csv"))
+```
+
+
+
+##### FILE MANIFEST
+
+Read in subject_label columns from all datasets:
+
+```{r}
+filenames <- list.files(path = "C:/Users/pierrettelo/Documents/INCLUDE/data uploaded to Synapse/ABC-DS data from LONI/All Study Data", pattern = ".csv$", full.names = TRUE)
+
+#41 files, subtract data dictionary = 40 files.. don't forget 1 has ABCDS instead of abcds
+
+subject_labels <- map_df(filenames, read_csv, col_select = matches("subject_label", ignore.case = TRUE), id = "filename")
+
+abcds_datafile_manifest <- subject_labels %>% 
+  mutate(filename = str_extract(filename, "(abcds|ABCDS).*(?=.csv)")) %>% 
+  pivot_longer(cols = -filename, names_to = "colname", values_to = "subject_label") %>% 
+  filter(!is.na(subject_label)) %>% 
+  select(subject_label, filename) %>% 
+  arrange(subject_label) %>% 
+  distinct() #many files have >1 row per subject
+
+#check = 417 participants
+#pull(abcds_datafile_manifest, subject_label) %>% unique()
+```
+
+Read in Expansion sheet
+
+```{r}
+gs4_deauth()
+
+abcds_file_metadata <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/1wNtmceBQwZu71gmQ1Z48yqNdV0zNu9WfZJ5IAhoRnMw/edit#gid=500276219&fvid=2074659656",
+  sheet = "ABCDS_file_metadata")
+
+abcds_datafile <- abcds_datafile_manifest %>% 
+  left_join(abcds_file_metadata, by = c("filename" = "file_name")) %>% 
+  rename(participantExternalId = subject_label,
+         fileExternalId = filename,
+         fileName = file_title,
+         dataCategory = data_category,
+         dataType = data_type,
+         fileFormat = format) %>% 
+  mutate(studyCode = "ABC-DS",
+         sampleExternalId = NA,
+         fileGlobalId = NA,
+         fileHash = NA,
+         dataAccess = "Controlled",
+         experimentalStrategy = NA,
+         experimentalPlatform = NA,
+         fileSize = NA,
+         fileSizeUnit = NA,
+         accessUrl = "https://www.nia.nih.gov/research/abc-ds#data",
+         publicationDoi = NA) %>% 
+  select(all_of(datafile_schemalabels)) %>% 
+  setNames(datafile_displaynames)
+```
+
+
+```{r}
+abcds_datafile %>% write_csv(here::here("output", "abcds_datafile.csv"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
