@@ -1,0 +1,82 @@
+---
+title: "synapse validation & submission commands March 2023"
+---
+
+```{r}
+gs4_deauth()
+
+synapse_folders <- read_sheet("https://docs.google.com/spreadsheets/d/1wNtmceBQwZu71gmQ1Z48yqNdV0zNu9WfZJ5IAhoRnMw/edit#gid=871534835", sheet = "synapse_2023-03", skip = 1, n_max = 5)
+```
+
+**VALIDATE STUDY**
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/HTP_study.csv --data_type Study
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/DSC_study.csv --data_type Study
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/ABC-DS_study.csv --data_type Study
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/X01-deSmith_study.csv --data_type Study
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/X01-Hakon_study.csv --data_type Study
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/DS-Sleep_study.csv --data_type Study
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/BRI-DSR_study.csv --data_type Study
+
+
+
+**VALIDATE PARTICIPANT**
+
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/htp_participant.csv --data_type Participant
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/dsc_participant.csv --data_type Participant
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/abcds_participant.csv --data_type Participant
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/desmith_participant.csv --data_type Participant
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/hakon_participant.csv --data_type Participant
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/bridsr_participant.csv --data_type Participant
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/dssleep_participant.csv --data_type Participant
+
+
+
+
+**VALIDATE CONDITION**
+
+schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/htp_condition.csv --data_type Condition
+
+
+<!-- **SUBMIT STUDY** -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/HTP_study.csv --dataset_id syn51198957 --manifest_record_type table --use_display_label -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/DSC_study.csv --dataset_id syn51198971 --manifest_record_type table --use_display_label -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/ABC-DS_study.csv --dataset_id syn51198996 --manifest_record_type table --use_display_label -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/X01-deSmith_study.csv --dataset_id syn51198976 --manifest_record_type table --use_display_label -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/X01-Hakon_study.csv --dataset_id syn51198981 --manifest_record_type table --use_display_label -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/DS-Sleep_study.csv --dataset_id syn51198986 --manifest_record_type table --use_display_label -->
+
+<!-- #schematic model --config config.yml submit --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/BRI-DSR_study.csv --dataset_id syn51198991 --manifest_record_type table --use_display_label -->
+
+SELECT * FROM syn51209372
+UNION SELECT * FROM syn51209342
+UNION SELECT * FROM syn51209344
+UNION SELECT * FROM syn51209350
+UNION	SELECT * FROM syn51209326
+UNION	SELECT * FROM syn51209375
+UNION	SELECT * FROM syn51104967
+[^ this doesn't work - need to ]
+
+
+syn51209372
+
+
+
+
+
+
+
+
+

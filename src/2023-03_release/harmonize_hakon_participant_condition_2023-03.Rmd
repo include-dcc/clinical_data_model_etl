@@ -110,7 +110,6 @@ hakon_participant <- hakon_participant %>%
 #%>% select(participantExternalId, sex_original, sex, race_original, race, ethnicity_original, ethnicity, affected_status, downSyndromeStatus, vital_status, outcomesVitalStatus)
 ```
 
-
 Family relationships:
 **NOTE: family KFDS1418766486 has 2 Probands - not indicated as sibs in source dataset**
 
@@ -212,6 +211,21 @@ hakon_participant <- hakon_participant %>%
 
 ```
 
+Age at first patient engagement:
+Not collected for non-DS relatives
+**consider making non-required in future data model**
+
+```{r}
+hakon_participant <- hakon_participant %>% 
+  mutate(ageAtFirstPatientEngagement = case_when(
+    downSyndromeStatus == "T21" ~ age_at_sample_procurement_days,
+    downSyndromeStatus == "D21" ~ "Not collected"
+  )) 
+
+#%>% select(participantExternalId, downSyndromeStatus, age_at_sample_procurement_days, ageAtFirstPatientEngagement)
+```
+
+
 
 Get Global IDs:
 
@@ -248,7 +262,6 @@ hakon_participant <- hakon_participant %>%
   mutate(studyCode = "X01-Hakon",
          participantGlobalId = global_id,
          familyId = family_id,
-         ageAtFirstPatientEngagement = as.numeric(age_at_sample_procurement_days),
          firstPatientEngagementEvent = "Biospecimen collection",
          ageAtLastVitalStatus = as.numeric(age_at_last_known_vital_status)) %>% 
   select(all_of(participant_schemalabels)) %>% 

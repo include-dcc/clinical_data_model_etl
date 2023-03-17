@@ -19,15 +19,15 @@ dsc_ihq <- read_csv(synGet("syn26445517")$path)
 ```
 
 
-##### DATA CHECKS
+<!-- ##### DATA CHECKS -->
 
-```{r}
-n_distinct(dsc_demographic$patient_id) #3484
-n_distinct(dsc_ihq$patient_id) #3484
+<!-- ```{r} -->
+<!-- n_distinct(dsc_demographic$patient_id) #3484 -->
+<!-- n_distinct(dsc_ihq$patient_id) #3484 -->
 
-# all pts with ihq have demographics
-setdiff(dsc_ihq$patient_id, dsc_demographic$patient_id)
-```
+<!-- # all pts with ihq have demographics -->
+<!-- setdiff(dsc_ihq$patient_id, dsc_demographic$patient_id) -->
+<!-- ``` -->
 
 ##### PARTICIPANT
 
@@ -105,7 +105,7 @@ dsc_races <- dsc_demo_harmonized %>%
   group_by(patient_id) %>% 
   summarize(race_combined = paste(race_cat, collapse = "|")) %>% 
   mutate(race_original = case_when(
-    str_detect(race_combined, "\\|") ~ "More Than One Race",
+    str_detect(race_combined, "\\|") ~ "More than one race",
     TRUE ~ race_combined
   )) %>% 
   select(-race_combined) 

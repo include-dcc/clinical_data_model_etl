@@ -41,7 +41,6 @@ dssleep_etl_plan <- etl_to_linkml_plan %>%
 ```
 
 
-
 ##### PARTICIPANT
 
 Remove Condition & Measure cols
@@ -55,6 +54,11 @@ dssleep_participant <- dssleep_clinical_source %>%
 
 Sex, Race (Ethnicity = Unknown):
 ```{r}
+dssleep_race_lookup_values <- dssleep_etl_plan %>% 
+  filter(model_slot == "race") %>% 
+  select(model_enum_label, original_value) %>% 
+  unnest(original_value)
+
 dssleep_ethnicity_lookup_values <- dssleep_etl_plan %>% 
   filter(model_slot == "ethnicity") %>% 
   select(model_enum_label, original_value) %>% 
@@ -76,7 +80,9 @@ dssleep_ds_lookup_values <- dssleep_etl_plan %>%
   unnest(original_value) %>% 
   mutate(original_value = na_if(original_value, "NA"))
 
-dssleep_participant <- dssleep_participant %>% 
+dssleep_participant <- dssleep_participant %>%
+  left_join(dssleep_race_lookup_values, by = c("race_original" = "original_value")) %>% 
+  rename(race = model_enum_label) %>% 
   left_join(dssleep_ethnicity_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
   rename(ethnicity = model_enum_label) %>% 
   left_join(dssleep_familyrel_lookup_values, by = c("family_relationship" = "original_value")) %>% 
@@ -84,7 +90,7 @@ dssleep_participant <- dssleep_participant %>%
   left_join(dssleep_familytype_lookup_values, by = c("family_type" = "original_value")) %>%
   rename(familyType = model_enum_label) %>% 
   left_join(dssleep_ds_lookup_values, by = c("ds_status" = "original_value")) %>%
-  rename(downSyndromeStatus = model_enum_label) 
+  rename(downSyndromeStatus = model_enum_label)
 
 #%>% select(participantExternalId, ethnicity_original, ethnicity, family_relationship, familyRelationship, family_type, familyType, ds_status, downSyndromeStatus)
 ```
@@ -142,7 +148,6 @@ dssleep_participant <- dssleep_participant %>%
          fatherId = father_id,
          motherId = mother_id,
          sex = sex_original,
-         race = race_original,
          siblingId = sibling_id,
          otherFamilyMemberId = NA,
          ageAtFirstPatientEngagement = age_at_registration_days,

@@ -213,7 +213,10 @@ htp_relationships <- htp_relationships %>%
   left_join(other_rel_ids) %>% 
   group_by(participantExternalId) %>%  
   #combine multiple relationships into single row (e.g. Proband, Sibling)
-  mutate(familyRelationship = paste(familyRelationship, collapse = ", ")) %>% 
+  mutate(familyRelationship = paste(familyRelationship, collapse = ", ")) %>%
+  #for now, if multiple relationships, only take Proband (due to data model enums)
+  mutate(familyRelationship = if_else(
+    str_detect(familyRelationship, "Proband, "), "Proband", familyRelationship)) %>% 
   ungroup() %>% 
   #remove duplicates caused by splitting out relationships into separate rows
   select(-relationship) %>% 
@@ -248,7 +251,7 @@ htp_family_types <- htp_relationships %>%
   distinct() %>% 
   ungroup() %>% #make sure to ungroup or this will run SLOW
   mutate(familyType = case_when(
-    family_list == "Proband" ~ "Proband_only",
+    family_list == "Proband" ~ "Proband-only",
     family_list == "Mother|Proband" ~ "Duo",
     family_list == "Father|Proband" ~ "Duo",
     family_list == "Father|Mother|Proband" ~ "Trio",

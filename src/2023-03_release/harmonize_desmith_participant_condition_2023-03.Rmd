@@ -77,6 +77,8 @@ desmith_participant <- desmith_clinical_harmonized %>%
 
 
 Sex, Race (Ethnicity = Unknown):
+(note - error in Race of OX257 - "white" lowercase - has been added to ETL plan)
+
 ```{r}
 desmith_sex_lookup_values <- desmith_etl_plan %>% 
   filter(model_slot == "sex") %>% 
@@ -100,7 +102,7 @@ desmith_vital_lookup_values <- desmith_etl_plan %>%
 
 desmith_participant <- desmith_participant %>% 
   left_join(desmith_race_lookup_values, by = c("race_ethnicity" = "original_value")) %>% 
-  rename(race = model_enum_label) %>% 
+  rename(race = model_enum_label) %>%
   left_join(desmith_ethnicity_lookup_values, by = c("race_ethnicity" = "original_value")) %>% 
   rename(ethnicity = model_enum_label) %>% 
   left_join(desmith_sex_lookup_values, by = c("sex_original" = "original_value")) %>% 
