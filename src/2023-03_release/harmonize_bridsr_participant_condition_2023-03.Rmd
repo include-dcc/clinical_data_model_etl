@@ -1,5 +1,5 @@
 ---
-title: "Harmonize Khor to LinkML v2 model - March 2023"
+title: "Harmonize BRI-DSR to LinkML v2 model - March 2023"
 ---
 
 
@@ -70,13 +70,13 @@ khor_race_lookup_values <- khor_etl_plan %>%
   filter(model_slot == "race") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value) %>% 
-  na_if("NA")
+  mutate(original_value = na_if(original_value, "NA"))
 
 khor_eth_lookup_values <- khor_etl_plan %>% 
   filter(model_slot == "ethnicity") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value) %>% 
-  na_if("NA")
+  mutate(original_value = na_if(original_value, "NA"))
 
 khor_participant <- khor_clinical_harmonized %>% 
   left_join(khor_sex_lookup_values, by = c("gender" = "original_value")) %>% 
@@ -89,6 +89,30 @@ khor_participant <- khor_clinical_harmonized %>%
 # %>% select(participantExternalId, gender, sex, race_original, race, ethnicity_original, ethnicity)
 ```
 
+
+Get Global IDs:
+
+```{r}
+bridsr_dewrangle_input <- khor_participant %>% 
+  distinct(participantExternalId) %>% 
+  rename(descriptor = participantExternalId) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(bridsr_dewrangle_input, 
+          here::here("output", "bridsr_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+bridsr_global_ids <- read_csv(here::here("output", "global-descriptors-BRI-DSR.csv"))
+
+khor_participant <- khor_participant %>% 
+  left_join(bridsr_global_ids %>% select(descriptor, global_id),
+            by = c("participantExternalId" = "descriptor")) 
+
+#%>% select(participantExternalId, global_id) %>% filter(is.na(global_id))
+```
+
+
 Create final Participant table:
 
 - Fill in info that is same for every participant (mutate)
@@ -99,7 +123,7 @@ Create final Participant table:
 ```{r}
 bridsr_participant <- khor_participant %>% 
   mutate(studyCode = "BRI-DSR",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          familyId = NA,
          familyType = "Proband-only",
          fatherId = NA,

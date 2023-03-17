@@ -93,7 +93,7 @@ hakon_vital_lookup_values <- hakon_etl_plan %>%
   filter(model_slot == "outcomesVitalStatus") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value) %>% 
-  na_if("NA")
+  mutate(original_value = na_if(original_value, "NA"))
 
 hakon_participant <- hakon_participant %>% 
   left_join(hakon_sex_lookup_values, by = c("sex_original" = "original_value")) %>% 
@@ -112,6 +112,7 @@ hakon_participant <- hakon_participant %>%
 
 
 Family relationships:
+**NOTE: family KFDS1418766486 has 2 Probands - not indicated as sibs in source dataset**
 
 ```{r}
 hakon_family_lookup_values <- hakon_etl_plan %>% 
@@ -155,7 +156,10 @@ hakon_sibling_ids <- hakon_participant %>%
   pivot_wider(names_from = familyRelationship,
               values_from = participantExternalId) %>% 
   unnest_wider(Sibling, names_sep = "") %>% 
-  unite(col = "siblingId", starts_with("Sibling"), sep = ", ", na.rm = TRUE)
+  unite(col = "siblingId", starts_with("Sibling"), sep = ", ", na.rm = TRUE) %>% 
+# MANUALLY ADD family KFDS1418766486 Probands as sibs of each other
+  add_row(proband_id = "KFDS8439296231", siblingId = "KFDS9616047740") %>% 
+  add_row(proband_id = "KFDS9616047740", siblingId = "KFDS8439296231")
 
 hakon_other_ids <- hakon_participant %>%
   arrange(family_id) %>% 
@@ -208,6 +212,30 @@ hakon_participant <- hakon_participant %>%
 
 ```
 
+
+Get Global IDs:
+
+```{r}
+hakon_dewrangle_input <- hakon_participant %>% 
+  distinct(participantExternalId) %>% 
+  rename(descriptor = participantExternalId) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(hakon_dewrangle_input, 
+          here::here("output", "hakon_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+hakon_global_ids <- read_csv(here::here("output", "global-descriptors-X01-Hakon.csv"))
+
+hakon_participant <- hakon_participant %>% 
+  left_join(hakon_global_ids %>% select(descriptor, global_id),
+            by = c("participantExternalId" = "descriptor")) 
+
+#%>% select(participantExternalId, global_id) %>% filter(is.na(global_id))
+```
+
+
 Create final Participant table:
 
 - Fill in info that is same for every participant (mutate)
@@ -218,13 +246,14 @@ Create final Participant table:
 ```{r}
 hakon_participant <- hakon_participant %>% 
   mutate(studyCode = "X01-Hakon",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          familyId = family_id,
          ageAtFirstPatientEngagement = as.numeric(age_at_sample_procurement_days),
          firstPatientEngagementEvent = "Biospecimen collection",
          ageAtLastVitalStatus = as.numeric(age_at_last_known_vital_status)) %>% 
   select(all_of(participant_schemalabels)) %>% 
   setNames(participant_displaynames)
+
 ```
 
 ```{r}

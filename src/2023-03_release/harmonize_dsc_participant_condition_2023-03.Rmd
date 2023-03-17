@@ -384,17 +384,10 @@ dsc_conditions_final <- dsc_conditions_subset %>%
 #dsc_conditions_final %>% arrange(patient_id)
 ```
 
-```{r}
-#TODO: add measure
-```
-
-
 Create empty/all same value columns
 Select columns in order of DCA template
 ```{r}
-dsc_condition
-
-dsc_conditions_final %>%
+dsc_condition <- dsc_conditions_final %>%
   left_join(dsc_ihq %>% 
               mutate(patient_id = as.character(patient_id)) %>% 
               select(patient_id, session_id)) %>% 
@@ -412,6 +405,7 @@ dsc_conditions_final %>%
   setNames(condition_displaynames)
 
 ```
+
 
 ```{r}
 write_csv(dsc_condition, here::here("output", "dsc_condition.csv"))

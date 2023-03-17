@@ -51,6 +51,7 @@ desmith_clinical_harmonized <- desmith_clinical_source %>%
   mutate(across(matches(misclassified), ~na_if(., "nk"))) %>% 
   mutate(across(matches(misclassified), ~as.numeric(.))) %>% 
   rename(participantExternalId = wpsid) 
+
 ``` 
 
 
@@ -110,6 +111,28 @@ desmith_participant <- desmith_participant %>%
 #%>% select(participantExternalId, race_ethnicity, race, ethnicity, sex_original, sex)
 ```
 
+Get Global IDs:
+
+```{r}
+desmith_dewrangle_input <- desmith_participant %>% 
+  distinct(participantExternalId) %>% 
+  rename(descriptor = participantExternalId) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(desmith_dewrangle_input, 
+          here::here("output", "desmith_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+desmith_global_ids <- read_csv(here::here("output", "global-descriptors-X01-deSmith.csv"))
+
+desmith_participant <- desmith_participant %>% 
+  left_join(desmith_global_ids %>% select(descriptor, global_id),
+            by = c("participantExternalId" = "descriptor")) 
+
+#%>% select(participantExternalId, global_id) %>% filter(is.na(global_id))
+```
+
 
 Create final Participant table:
 
@@ -121,9 +144,9 @@ Create final Participant table:
 ```{r}
 desmith_participant <- desmith_participant %>% 
   mutate(studyCode = "X01-deSmith",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          familyId = NA,
-         familyType = NA,
+         familyType = "Proband-only",
          fatherId = NA,
          motherId = NA,
          siblingId = NA,
@@ -190,6 +213,8 @@ desmith_conditions <- desmith_conditions %>%
 ```
 
 Measures:
+**NOTE: decimal number vary when displayed in R and Excel**
+**Actual numbers match up in output csv and Excel when you click on the cell**
 
 ```{r}
 desmith_measures <- desmith_clinical_harmonized %>% 

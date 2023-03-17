@@ -74,7 +74,7 @@ dssleep_ds_lookup_values <- dssleep_etl_plan %>%
   filter(model_slot == "downSyndromeStatus") %>% 
   select(model_enum_label, original_value) %>% 
   unnest(original_value) %>% 
-  na_if("NA")
+  mutate(original_value = na_if(original_value, "NA"))
 
 dssleep_participant <- dssleep_participant %>% 
   left_join(dssleep_ethnicity_lookup_values, by = c("ethnicity_original" = "original_value")) %>% 
@@ -85,8 +85,8 @@ dssleep_participant <- dssleep_participant %>%
   rename(familyType = model_enum_label) %>% 
   left_join(dssleep_ds_lookup_values, by = c("ds_status" = "original_value")) %>%
   rename(downSyndromeStatus = model_enum_label) 
- 
- #%>% select(participantExternalId, ethnicity_original, ethnicity, family_relationship, familyRelationship, family_type, familyType, ds_status, downSyndromeStatus)
+
+#%>% select(participantExternalId, ethnicity_original, ethnicity, family_relationship, familyRelationship, family_type, familyType, ds_status, downSyndromeStatus)
 ```
 
 Family:
@@ -104,6 +104,29 @@ dssleep_participant <- dssleep_participant %>%
 ```
 
 
+Get Global IDs:
+
+```{r}
+dssleep_dewrangle_input <- dssleep_participant %>% 
+  distinct(participantExternalId) %>% 
+  rename(descriptor = participantExternalId) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(dssleep_dewrangle_input, 
+          here::here("output", "dssleep_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+dssleep_global_ids <- read_csv(here::here("output", "global-descriptors-DS-Sleep.csv"))
+
+dssleep_participant <- dssleep_participant %>% 
+  left_join(dssleep_global_ids %>% select(descriptor, global_id),
+            by = c("participantExternalId" = "descriptor")) 
+
+#%>% select(participantExternalId, global_id) %>% filter(is.na(global_id))
+```
+
+
 Create final Participant table:
 
 - Fill in info that is same for every participant (mutate)
@@ -112,9 +135,9 @@ Create final Participant table:
 - rename with display names
 
 ```{r}
-dssleep_participant %>% 
+dssleep_participant <- dssleep_participant %>% 
   mutate(studyCode = "DS-Sleep",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          familyId = family_id,
          fatherId = father_id,
          motherId = mother_id,
