@@ -147,31 +147,54 @@ dsc_demo_harmonized <- dsc_demo_harmonized %>%
 
 ```
 
-Age at Vital Status - leave out for now due to below inconsistencies
+<!-- Age at Vital Status - leave out for now due to below inconsistencies -->
+<!-- ```{r} -->
+<!-- # 4 patients have vital_status = Yes (Alive) but deceased_year is not NA -->
+<!-- # 6725 = survey_time 2015 -->
+<!-- # 6841 = 2016 -->
+<!-- # 11358 = 2019 -->
+<!-- # 11823 = 2020 -->
+<!-- dsc_demo_transformed %>%  -->
+<!--   left_join(dsc_ihq %>% select(patient_id, vital_status, survey_time)) %>%  -->
+<!--   select(patient_id, deceased_year, vital_status, survey_time) %>%  -->
+<!--   filter(vital_status == "Yes" & !is.na(deceased_year)) -->
+
+<!-- # 5 patients are dead but no deceased_year -->
+<!-- dsc_demo_transformed %>%  -->
+<!--   left_join(dsc_ihq %>% select(patient_id, vital_status)) %>%  -->
+<!--   select(patient_id, deceased_year, vital_status) %>%  -->
+<!--   filter(vital_status == "No") -->
+
+<!-- # 1 pt (3981) has vital_status NA but has deceased_year -->
+<!-- dsc_demo_transformed %>%  -->
+<!--   left_join(dsc_ihq %>% select(patient_id, vital_status, survey_time)) %>%  -->
+<!--   select(patient_id, deceased_year, vital_status, survey_time) %>%  -->
+<!--   filter(!is.na(deceased_year) | vital_status == "No") %>%  -->
+<!--   arrange(vital_status)  -->
+
+<!-- ``` -->
+
+
+Get Global IDs:
+
 ```{r}
-# 4 patients have vital_status = Yes (Alive) but deceased_year is not NA
-# 6725 = survey_time 2015
-# 6841 = 2016
-# 11358 = 2019
-# 11823 = 2020
-dsc_demo_transformed %>% 
-  left_join(dsc_ihq %>% select(patient_id, vital_status, survey_time)) %>% 
-  select(patient_id, deceased_year, vital_status, survey_time) %>% 
-  filter(vital_status == "Yes" & !is.na(deceased_year))
+dsc_dewrangle_input <- dsc_demo_harmonized %>% 
+  distinct(patient_id) %>% 
+  rename(descriptor = patient_id) %>% 
+  mutate(fhir_resource_type = "patient")
 
-# 5 patients are dead but no deceased_year
-dsc_demo_transformed %>% 
-  left_join(dsc_ihq %>% select(patient_id, vital_status)) %>% 
-  select(patient_id, deceased_year, vital_status) %>% 
-  filter(vital_status == "No")
+write_csv(dsc_dewrangle_input, 
+          here::here("output", "dsc_dewrangle_input.csv"))
 
-# 1 pt (3981) has vital_status NA but has deceased_year
-dsc_demo_transformed %>% 
-  left_join(dsc_ihq %>% select(patient_id, vital_status, survey_time)) %>% 
-  select(patient_id, deceased_year, vital_status, survey_time) %>% 
-  filter(!is.na(deceased_year) | vital_status == "No") %>% 
-  arrange(vital_status) 
+# submit manifest at dewrangle.com; save result to "output"
 
+dsc_global_ids <- read_csv(here::here("output", "global-descriptors-DS-Connect.csv"))
+
+dsc_demo_harmonized <- dsc_demo_harmonized %>% 
+  left_join(dsc_global_ids %>% select(descriptor, global_id),
+            by = c("patient_id" = "descriptor"))
+
+#%>% select(patient_id, global_id) %>% filter(is.na(global_id))
 ```
 
 
@@ -180,7 +203,7 @@ Create final Participant table
 ```{r}
 dsc_participant <- dsc_demo_harmonized %>%
   mutate(studyCode = "DSC",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          participantExternalId = patient_id,
          fatherId = NA,
          motherId = NA,
@@ -213,71 +236,71 @@ condition_lookup_dsc <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSb
   filter(study == "DSC")
 ```
 
-Special cols (ie. NOT 1)
-leukemia_ever_diagnosis
-dementia_ad_cognitive_ever_diagnosis
-dementia_ad_cognitive_ever_diagnosis
-dementia_ad_cognitive_ever_diagnosis
-celiac_ever_diagnosis -> gi_condition_celiac
-chd_ever_diagnosis -> chd_condition_
-skeletal_ever_diagnosis -> skeletal_condition_
-thyroid_ever_diagnosis -> thyroid_condition_
-seizures_epilepsy_ever_diagnosis
-gi_ever_diagnosis -> gi_condition_
-sleep_ever_diagnosis -> sleep_condition_
-covid19_ever_diagnosis
-diabetes_ever_diagnosis
-eye_exam_ever
-hearing_testing_ever
-ds_specific_diagnosis
+Special cols (ie. NOT 1):
+  leukemia_ever_diagnosis
+  dementia_ad_cognitive_ever_diagnosis
+  dementia_ad_cognitive_ever_diagnosis
+  dementia_ad_cognitive_ever_diagnosis
+  celiac_ever_diagnosis -> gi_condition_celiac
+  chd_ever_diagnosis -> chd_condition_
+  skeletal_ever_diagnosis -> skeletal_condition_
+  thyroid_ever_diagnosis -> thyroid_condition_
+  seizures_epilepsy_ever_diagnosis
+  gi_ever_diagnosis -> gi_condition_
+  sleep_ever_diagnosis -> sleep_condition_
+  covid19_ever_diagnosis
+  diabetes_ever_diagnosis
+  eye_exam_ever
+  hearing_testing_ever
+  ds_specific_diagnosis
 
 
 Data checks - CHD:
 ```{r}
 # patients where chd_ever = Yes but doesn't have other chd_conditions: 17
 # https://stackoverflow.com/a/62162600
-dsc_ihq %>% 
-  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>% 
-  rowwise() %>% 
-  filter(chd_ever_diagnosis == "Yes" & 
+dsc_ihq %>%
+  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>%
+  rowwise() %>%
+  filter(chd_ever_diagnosis == "Yes" &
            all(is.na(c_across(starts_with("chd_condition")))))
 
-# patients where chd_ever = No but has other chd_conditions? 
-dsc_ihq %>% 
-  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>% 
-  rowwise() %>% 
-  filter(chd_ever_diagnosis == "No" & 
+# patients where chd_ever = No but has other chd_conditions?
+dsc_ihq %>%
+  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>%
+  rowwise() %>%
+  filter(chd_ever_diagnosis == "No" &
            any(!is.na(c_across(starts_with("chd_condition")))))
 
 # or patients where chd_ever = Yes but chd_condition_none = also Yes
-dsc_ihq %>% 
-  filter(chd_ever_diagnosis == "Yes" & chd_condition_none == 1) %>% 
+dsc_ihq %>%
+  filter(chd_ever_diagnosis == "Yes" & chd_condition_none == 1) %>%
   pull(patient_id)
 
 ```
 
-Check GI cols
-```{r}
-# are there any patients where gi_ever = Yes but doesn't have other gi_conditions? 37
-dsc_ihq %>% 
-  select(patient_id, gi_ever_diagnosis, starts_with("gi_condition_"), -gi_condition_none) %>% 
-  rowwise() %>% 
-  filter(gi_ever_diagnosis == "Yes" & 
-           all(is.na(c_across(starts_with("gi_condition")))))
+<!-- Check GI cols -->
+<!-- ```{r} -->
+<!-- # are there any patients where gi_ever = Yes but doesn't have other gi_conditions? 37 -->
+<!-- dsc_ihq %>%  -->
+<!--   select(patient_id, gi_ever_diagnosis, starts_with("gi_condition_"), -gi_condition_none) %>%  -->
+<!--   rowwise() %>%  -->
+<!--   filter(gi_ever_diagnosis == "Yes" &  -->
+<!--            all(is.na(c_across(starts_with("gi_condition"))))) -->
 
-# or patients where gi_ever = No but has other gi_conditions?  146
-dsc_ihq %>% 
-  select(patient_id, gi_ever_diagnosis, starts_with("gi_condition_"), -gi_condition_none) %>% 
-  rowwise() %>% 
-  filter(gi_ever_diagnosis == "No" & 
-           any(!is.na(c_across(starts_with("gi_condition")))))
+<!-- # or patients where gi_ever = No but has other gi_conditions?  146 -->
+<!-- dsc_ihq %>%  -->
+<!--   select(patient_id, gi_ever_diagnosis, starts_with("gi_condition_"), -gi_condition_none) %>%  -->
+<!--   rowwise() %>%  -->
+<!--   filter(gi_ever_diagnosis == "No" &  -->
+<!--            any(!is.na(c_across(starts_with("gi_condition"))))) -->
 
-# or patients where gi_ever = Yes but gi_condition_none = also Yes
-dsc_ihq %>% 
-  filter(gi_ever_diagnosis == "Yes" & gi_condition_none == 1) %>% 
-  pull(patient_id)
+<!-- # or patients where gi_ever = Yes but gi_condition_none = also Yes -->
+<!-- dsc_ihq %>%  -->
+<!--   filter(gi_ever_diagnosis == "Yes" & gi_condition_none == 1) %>%  -->
+<!--   pull(patient_id) -->
 
-```
+<!-- ``` -->
 
 
 CHD cols - just choose any positive assertion:
@@ -384,6 +407,7 @@ dsc_conditions_final <- dsc_conditions_subset %>%
 #dsc_conditions_final %>% arrange(patient_id)
 ```
 
+Final table:
 Create empty/all same value columns
 Select columns in order of DCA template
 ```{r}

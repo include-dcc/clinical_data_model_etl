@@ -110,17 +110,19 @@ and F0031) -> Treat as unrelated; leave as Probands, delete "Other relation of P
 relation of Proband"
 - 0566 and 0561 are twins - delete "Other relation of Proband" as that is just to trigger a
 free text box in redcap
+- HTP0077 has only one relationship = Other Relation of Control -> rename as Control manually
 
 - e.g. F0072-F0078 has parents of Proband but not Proband - there are several like this
 These won't have family member IDs because there's no Proband
 
 ```{r}
 htp_relationships <- htp_participant %>%
-  select(participantExternalId, sex_original, family_id, relationship) %>% 
+  select(participantExternalId, sex_original, family_id, relationship, karyotype) %>% 
   #fix the above special cases
   mutate(relationship = case_when(
     participantExternalId %in% c("HTP0052", "HTP0053", "HTP0603") ~ "Proband",
     participantExternalId %in% c("HTP0566", "HTP0561") ~ "Proband,Sibling of Proband",
+    participantExternalId == "HTP0077" ~ "Control - No relation to proband",
     TRUE ~ relationship
   )) %>% 
   separate_rows(relationship, sep = ",") %>% 
@@ -142,18 +144,18 @@ htp_relationships <- htp_participant %>%
 #filter(participantExternalId %in% c("HTP0052", "HTP0053", "HTP0603"))
 ```
 
-Check participants who have more than 1 relationship listed
-Make note of those for Family Type and Family Member IDs
+<!-- Check participants who have more than 1 relationship listed -->
+<!-- Make note of those for Family Type and Family Member IDs -->
 
-```{r}
+<!-- ```{r} -->
 
-htp_relationships %>% 
-  group_by(participantExternalId) %>% 
-  mutate(n = n()) %>% 
-  arrange(desc(n)) %>% 
-  filter(n >= 2)
+<!-- htp_relationships %>%  -->
+<!--   group_by(participantExternalId) %>%  -->
+<!--   mutate(n = n()) %>%  -->
+<!--   arrange(desc(n)) %>%  -->
+<!--   filter(n >= 2) -->
 
-```
+<!-- ``` -->
 
 Family Member IDs:
 ```{r}
@@ -244,6 +246,7 @@ htp_family_types <- htp_relationships %>%
                                                 otherFamilyMemberId))))), .after = family_list) %>% 
   select(family_id, family_list, family_count) %>%
   distinct() %>% 
+  ungroup() %>% #make sure to ungroup or this will run SLOW
   mutate(familyType = case_when(
     family_list == "Proband" ~ "Proband_only",
     family_list == "Mother|Proband" ~ "Duo",
@@ -253,7 +256,6 @@ htp_family_types <- htp_relationships %>%
     TRUE ~ "Other")
   ) %>% 
   select(family_id, familyType)
-  
 ```
 
 
@@ -267,6 +269,29 @@ htp_participant <- htp_participant %>%
             by = "participantExternalId")
 ```
 
+Get Global IDs:
+
+```{r}
+htp_dewrangle_input <- htp_participant %>% 
+  distinct(participantExternalId) %>% 
+  rename(descriptor = participantExternalId) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(htp_dewrangle_input, 
+          here::here("output", "htp_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+htp_global_ids <- read_csv(here::here("output", "global-descriptors-HTP.csv"))
+
+htp_participant <- htp_participant %>% 
+  left_join(htp_global_ids %>% select(descriptor, global_id),
+            by = c("participantExternalId" = "descriptor")) 
+
+#%>% select(participantExternalId, global_id) %>% filter(is.na(global_id))
+```
+
+
 Create final Participant table:
 
 - Fill in info that is same for every participant (mutate)
@@ -277,7 +302,7 @@ Create final Participant table:
 ```{r}
 htp_participant <- htp_participant %>% 
   mutate(studyCode = "HTP",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          familyId = family_id,
          sex = sex_original,
          ageAtFirstPatientEngagement = age_at_enrollment_days,
@@ -303,21 +328,21 @@ condition_lookup_htp <- condition_codes_v3 %>% filter(study == "HTP")
 measure_lookup_htp <- measure_codes_v3 %>% filter(study == "HTP")
 ```
 
-Data Check: confirm that every set of visits for a participant has the same phenotype values (i.e. 1)
-```{r}
-htp_clinical_harmonized %>% 
-  select(-(lab_id:mr_abstraction_status)) %>% 
-  group_by(participantExternalId) %>% 
-  distinct() %>% 
-  count() %>% 
-  arrange(desc(n))
+<!-- Data Check: confirm that every set of visits for a participant has the same phenotype values (i.e. 1) -->
+<!-- ```{r} -->
+<!-- htp_clinical_harmonized %>%  -->
+<!--   select(-(lab_id:mr_abstraction_status)) %>%  -->
+<!--   group_by(participantExternalId) %>%  -->
+<!--   distinct() %>%  -->
+<!--   count() %>%  -->
+<!--   arrange(desc(n)) -->
 
-test <- htp_clinical_harmonized %>% 
-  filter(participantExternalId == "HTP0332") %>% 
-  select(-(participantExternalId:mr_abstraction_status))
+<!-- test <- htp_clinical_harmonized %>%  -->
+<!--   filter(participantExternalId == "HTP0332") %>%  -->
+<!--   select(-(participantExternalId:mr_abstraction_status)) -->
 
-test[1,] == test[2,]
-```
+<!-- test[1,] == test[2,] -->
+<!-- ``` -->
 
 Pull conditions from clinical data
 ** SPECIAL CASE: Delete column "Anatomical Anomaly" and all "Unsure" cols, per Angela
@@ -379,13 +404,16 @@ htp_conditions <- htp_ds_diagnoses %>%
 ```
 
 Measures:
+**NOTE: decimal number vary when displayed in R and Excel**
+**Actual numbers match up in output csv and Excel when you click on the cell**
+
 ```{r}
 htp_measures <- htp_clinical_harmonized %>% 
   select(participantExternalId, event_name, bmi, weight_kg, height_cm, age_at_visit_days) %>% 
-  #round to number of decimals specified in measure_codes_v3
-  mutate(bmi = round(as.numeric(bmi), 1),
-         weight_kg = round(as.numeric(weight_kg), 1),
-         height_cm = round(as.numeric(height_cm), 1)) %>% 
+  # #round to number of decimals specified in measure_codes_v3
+  # mutate(bmi = round(as.numeric(bmi), 1),
+  #        weight_kg = round(as.numeric(weight_kg), 1),
+  #        height_cm = round(as.numeric(height_cm), 1)) %>% 
   pivot_longer(cols = c(bmi, weight_kg, height_cm),
                names_to = "source_text",
                values_to = "measureValue") %>% 

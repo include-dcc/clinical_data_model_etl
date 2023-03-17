@@ -42,32 +42,32 @@ abcds_age_all <- rbind(abcds_age_ctl, abcds_age_ds)
 ```
 
 
-Data checks [from Oct 2022]
-```{r}
-#417 unique subjects, no setdiff between health & demo
-n_distinct(health_all$subject_label)
-n_distinct(demo_all$subject_label)
-setdiff(health_all$subject_label, demo_all$subject_label)
+<!-- Data checks [from Oct 2022] -->
+<!-- ```{r} -->
+<!-- #417 unique subjects, no setdiff between health & demo -->
+<!-- n_distinct(health_all$subject_label) -->
+<!-- n_distinct(demo_all$subject_label) -->
+<!-- setdiff(health_all$subject_label, demo_all$subject_label) -->
 
-# most patients have both Baseline & Cycle 2 health & demo
-health_all %>% count(subject_label) %>% arrange(n)
-demo_all %>% count(subject_label) %>% arrange(desc(n))
+<!-- # most patients have both Baseline & Cycle 2 health & demo -->
+<!-- health_all %>% count(subject_label) %>% arrange(n) -->
+<!-- demo_all %>% count(subject_label) %>% arrange(desc(n)) -->
 
-# the demo cols we're interested in are the same at both timepoints
-demo_all %>% select(subject_label, de_gender, de_race, de_ethnicity, ds_vs_control_flag) %>% 
-  distinct() %>% count(subject_label) %>% arrange(desc(n))
+<!-- # the demo cols we're interested in are the same at both timepoints -->
+<!-- demo_all %>% select(subject_label, de_gender, de_race, de_ethnicity, ds_vs_control_flag) %>%  -->
+<!--   distinct() %>% count(subject_label) %>% arrange(desc(n)) -->
 
-# there are changes in hh between the 2 timepoints - asked ABCDS team what to do (FOR NOW - use baseline data only)
-health_all %>% select(subject_label, starts_with("hh")) %>% 
-  distinct() %>% count(subject_label) %>% arrange(desc(n))
+<!-- # there are changes in hh between the 2 timepoints - asked ABCDS team what to do (FOR NOW - use baseline data only) -->
+<!-- health_all %>% select(subject_label, starts_with("hh")) %>%  -->
+<!--   distinct() %>% count(subject_label) %>% arrange(desc(n)) -->
 
-# controls - how many have DS sibs
-n_distinct(demo_ctl$subject_label)
-n_distinct(control_linkage$ABCDS_ID_SC)
+<!-- # controls - how many have DS sibs -->
+<!-- n_distinct(demo_ctl$subject_label) -->
+<!-- n_distinct(control_linkage$ABCDS_ID_SC) -->
 
-# 10233 10224 10237 10235 are sibs in the linkage sheet who don't have any data
-setdiff(control_linkage$ABCDS_ID_SC, demo_ctl$subject_label)
-```
+<!-- # 10233 10224 10237 10235 are sibs in the linkage sheet who don't have any data -->
+<!-- setdiff(control_linkage$ABCDS_ID_SC, demo_ctl$subject_label) -->
+<!-- ``` -->
 
 
 FOR NOW: limit to Baseline data only (still for March 2023)
@@ -195,13 +195,35 @@ abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>%
   left_join(abcds_age_BL %>% select(subject_label, age_at_visit))
 ```
 
+Get Global IDs:
+
+```{r}
+abcds_dewrangle_input <- abcds_demo_BL_harmonized %>% 
+  distinct(subject_label) %>% 
+  rename(descriptor = subject_label) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(abcds_dewrangle_input, 
+          here::here("output", "abcds_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+abcds_global_ids <- read_csv(here::here("output", "global-descriptors-ABC-DS.csv"))
+
+abcds_demo_BL_harmonized <- abcds_demo_BL_harmonized %>% 
+  left_join(abcds_global_ids %>% select(descriptor, global_id),
+            by = c("subject_label" = "descriptor")) 
+
+#%>% select(subject_label, global_id) %>% filter(is.na(global_id))
+```
+
 
 Create final Participant table - Rename/create empty cols to match DCA template, has to be in order - For empty columns, replace NA with "Not provided"
 
 ```{r}
 abcds_participant <- abcds_demo_BL_harmonized %>% 
   mutate(studyCode = "ABC-DS",
-         participantGlobalId = NA,
+         participantGlobalId = global_id,
          participantExternalId = subject_label,
          fatherId = NA,
          motherId = NA,
@@ -308,6 +330,7 @@ write_csv(abcds_condition, here::here("output", "abcds_condition.csv"))
 Read in subject_label columns from all datasets:
 
 ```{r}
+#TODO: rewrite to get names from Synapse
 filenames <- list.files(path = "C:/Users/pierrettelo/Documents/INCLUDE/data uploaded to Synapse/ABC-DS data from LONI/All Study Data", pattern = ".csv$", full.names = TRUE)
 
 #41 files, subtract data dictionary = 40 files.. don't forget 1 has ABCDS instead of abcds
