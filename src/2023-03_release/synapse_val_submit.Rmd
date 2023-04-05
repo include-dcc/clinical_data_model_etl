@@ -37,11 +37,18 @@ synapse_folders <- read_sheet("https://docs.google.com/spreadsheets/d/1wNtmceBQw
 #schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/dssleep_participant.csv --data_type Participant
 
 
+schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/abcds_datafile.csv --data_type DataFile
 
 
 **VALIDATE CONDITION**
 
-schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/htp_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/htp_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/dsc_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/abcds_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/desmith_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/hakon_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/bridsr_condition.csv --data_type Condition
+#schematic model --config config.yml validate --manifest_path C:/Users/pierrettelo/Documents/R_projects/INCLUDE_R/output/dssleep_condition.csv --data_type Condition
 
 
 <!-- **SUBMIT STUDY** -->

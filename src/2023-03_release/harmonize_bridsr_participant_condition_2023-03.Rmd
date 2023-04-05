@@ -130,7 +130,7 @@ bridsr_participant <- khor_participant %>%
          motherId = NA,
          siblingId = NA,
          otherFamilyMemberId = NA,
-         familyRelationship = NA,
+         familyRelationship = "Proband",
          downSyndromeStatus = "T21",
          ageAtFirstPatientEngagement = round((age_at_enrollment_years * 365.25), 0),
          firstPatientEngagementEvent = "Enrollment",

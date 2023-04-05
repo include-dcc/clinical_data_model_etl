@@ -99,13 +99,19 @@ abcds_etl_plan <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6
 Bring in ABCDS_ID_DS from linkage table
 Family ID = ABCDS_ID_DS if exists, otherwise = `NA`
 ```{r}
+# filter out sibs 10233 10224 10237 10235 who don't have data
+# DS patients with these sibs will show as Proband-only, no Family ID
+sibs_with_data <- abcds_control_linkage %>% 
+  filter(ABCDS_ID_SC %in% abcds_demo_ctl$subject_label) %>% 
+  select(ABCDS_ID_SC, ABCDS_ID_DS)
+
 abcds_demo_BL_harmonized <- abcds_demo_BL %>%  
-  left_join(abcds_control_linkage %>% select(ABCDS_ID_SC, ABCDS_ID_DS),
+  left_join(sibs_with_data,
             by = c("subject_label" = "ABCDS_ID_SC"), keep = TRUE) %>% 
   relocate(ABCDS_ID_DS, .after = subject_label) %>% 
   mutate(familyId = case_when(
     !is.na(ABCDS_ID_DS) ~ ABCDS_ID_DS,
-    subject_label %in% abcds_control_linkage$ABCDS_ID_DS ~ subject_label
+    subject_label %in% sibs_with_data$ABCDS_ID_DS ~ subject_label
   ), .after = subject_label) %>% 
   arrange(subject_label)
 ```
@@ -340,7 +346,7 @@ subject_labels <- map_df(filenames, read_csv, col_select = matches("subject_labe
 abcds_datafile_manifest <- subject_labels %>% 
   mutate(filename = str_extract(filename, "(abcds|ABCDS).*(?=.csv)")) %>% 
   pivot_longer(cols = -filename, names_to = "colname", values_to = "subject_label") %>% 
-  filter(!is.na(subject_label)) %>% 
+  filter(!is.na(subject_label)) %>%
   select(subject_label, filename) %>% 
   arrange(subject_label) %>% 
   distinct() #many files have >1 row per subject
@@ -367,7 +373,7 @@ abcds_datafile <- abcds_datafile_manifest %>%
          dataType = data_type,
          fileFormat = format) %>% 
   mutate(studyCode = "ABC-DS",
-         sampleExternalId = NA,
+         sampleExternalId = "Not Available",
          fileGlobalId = NA,
          fileHash = NA,
          dataAccess = "Controlled",

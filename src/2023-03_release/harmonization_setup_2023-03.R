@@ -22,9 +22,9 @@ etl_to_linkml_plan <- read_sheet(
 
 # workaround so I can work with schema labels in R and then replace with display names 
 # before passing to schematic validate
-displayname_schemalabel_lookup <- read_csv(
-  here::here("data", "displaynames_schemalabels_March_2023.csv"))
-
+displayname_schemalabel_lookup <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit?pli=1#gid=908117705",
+                                             sheet = "displaynames_schemalabels_March_2023")
+  
 # get schema labels and display names for the components
 
 participant_schemalabels <- displayname_schemalabel_lookup %>% 
@@ -43,6 +43,14 @@ condition_displaynames <- displayname_schemalabel_lookup %>%
   filter(component == "Condition") %>% 
   pull(display_name)
 
+biospecimen_schemalabels <- displayname_schemalabel_lookup %>% 
+  filter(component == "Biospecimen") %>% 
+  pull(schema_label)
+
+biospecimen_displaynames <- displayname_schemalabel_lookup %>% 
+  filter(component == "Biospecimen") %>% 
+  pull(display_name)
+
 datafile_schemalabels <- displayname_schemalabel_lookup %>% 
   filter(component == "DataFile") %>% 
   pull(schema_label)
@@ -50,6 +58,21 @@ datafile_schemalabels <- displayname_schemalabel_lookup %>%
 datafile_displaynames <- displayname_schemalabel_lookup %>% 
   filter(component == "DataFile") %>% 
   pull(display_name)
+
+
+# # CREATE TEMPLATES FOR FINAL TABLE MUTATE
+# 
+participant_schemalabels %>% datapasta::vector_paste_vertical()
+# then select vector & use Addins > Toggle Vector Quotes
+
+condition_schemalabels %>% datapasta::vector_paste_vertical()
+# then select vector & use Addins > Toggle Vector Quotes
+
+biospecimen_schemalabels %>% datapasta::vector_paste_vertical()
+# then select vector & use Addins > Toggle Vector Quotes
+
+datafile_schemalabels %>% datapasta::vector_paste_vertical()
+# then select vector & use Addins > Toggle Vector Quotes
 
 
 # # ADD FOLDERS TO SYNAPSE PROJECTS

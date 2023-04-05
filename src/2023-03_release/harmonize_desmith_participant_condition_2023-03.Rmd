@@ -153,7 +153,7 @@ desmith_participant <- desmith_participant %>%
          motherId = NA,
          siblingId = NA,
          otherFamilyMemberId = NA,
-         familyRelationship = NA,
+         familyRelationship = "Proband",
          ethnicity = "Unknown",
          downSyndromeStatus = "T21",
          ageAtFirstPatientEngagement = age_at_enrollment,
@@ -259,3 +259,120 @@ desmith_condition <- desmith_conditions %>%
 ```{r}
 write_csv(desmith_condition, here::here("output", "desmith_condition.csv"))
 ```
+
+
+##### BIOSPECIMEN
+
+"whole blood DNA from EDTA tube"
+
+```{r}
+desmith_biospecimen <- desmith_clinical_source %>% 
+  select(wpsid, sample, analyte_type, experimental_strategy) %>% 
+  mutate(studyCode = "X01-deSmith",
+         participantExternalId = wpsid,
+         sampleGlobalId = NA,
+         sampleExternalId = paste0(wpsid, "_", analyte_type),
+         sampleType = analyte_type,
+         ageAtBiospecimenCollection = 0,
+         parentSampleGlobalId = NA,
+         parentSampleExternalId = NA,
+         parentSampleType = NA,
+         collectionGlobalId = NA,
+         collectionExternalId = paste0(wpsid, "_", str_replace(sample, " b", "_b")),
+         collectionSampleType = "Peripheral Whole Blood",
+         containerGlobalId = NA,
+         containerExternalId = NA,
+         volume = NA,
+         volumeUnit = NA,
+         concentration = NA,
+         concentrationUnit = NA,
+         laboratoryProcedure = NA,
+         biospecimenStorage = NA,
+         sampleAvailability = "Unavailable") %>% 
+  select(all_of(biospecimen_schemalabels)) %>% 
+  setNames(biospecimen_displaynames)
+
+```
+
+
+```{r}
+write_csv(desmith_biospecimen, here::here("output", "desmith_biospecimen_TEST.csv"))
+```
+
+##### dbGaP SUBMISSION FILES
+
+1. Subject-Consent Mapping File
+SUBJECT_ID, CONSENT, SEX
+
+2. Dictionary for the Subject-Consent Mapping File
+
+```{r}
+participants_to_delete <- c("OX112", "OX118", "OX239", "OX275", "OX367", "OX514")
+
+
+desmith_subject_consent_DS <- desmith_clinical_source %>% 
+  mutate(SUBJECT_ID = wpsid,
+         CONSENT = "1",
+         SEX = case_when(
+           sex_original == "M" ~ "1",
+           sex_original == "F" ~ "2",
+           sex_original == "nk" ~ "UNK"
+         )) %>% 
+  select(SUBJECT_ID, CONSENT, SEX) 
+
+#%>% filter(SUBJECT_ID %in% participants_to_delete)
+```
+
+3. Subject-Sample Mapping File
+SUBJECT_ID, SAMPLE_ID
+
+4. Dictionary for the Subject-Sample Mapping File
+```{r}
+desmith_subject_sample_DS <- desmith_clinical_source %>% 
+  mutate(SUBJECT_ID = wpsid,
+         SAMPLE_ID = paste0(wpsid, "_", analyte_type)) %>% 
+  select(SUBJECT_ID, SAMPLE_ID)
+```
+
+```{r}
+desmith_subject_consent_DS %>% 
+  write_csv(here::here("output", "desmith_subject_consent_DS.csv"))
+
+desmith_subject_sample_DS %>% 
+  write_csv(here::here("output", "desmith_subject_sample_DS.csv"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

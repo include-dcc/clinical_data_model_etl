@@ -27,7 +27,11 @@ dsc_ihq <- read_csv(synGet("syn26445517")$path)
 
 <!-- # all pts with ihq have demographics -->
 <!-- setdiff(dsc_ihq$patient_id, dsc_demographic$patient_id) -->
+
+<!-- # parent_ids that don't exist as patient_ids - only 5455 -->
+<!-- setdiff(dsc_ihq$parent_id, dsc_ihq$patient_id) -->
 <!-- ``` -->
+
 
 ##### PARTICIPANT
 

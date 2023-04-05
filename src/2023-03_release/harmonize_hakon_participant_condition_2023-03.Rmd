@@ -156,7 +156,7 @@ hakon_sibling_ids <- hakon_participant %>%
               values_from = participantExternalId) %>% 
   unnest_wider(Sibling, names_sep = "") %>% 
   unite(col = "siblingId", starts_with("Sibling"), sep = ", ", na.rm = TRUE) %>% 
-# MANUALLY ADD family KFDS1418766486 Probands as sibs of each other
+  # MANUALLY ADD family KFDS1418766486 Probands as sibs of each other
   add_row(proband_id = "KFDS8439296231", siblingId = "KFDS9616047740") %>% 
   add_row(proband_id = "KFDS9616047740", siblingId = "KFDS8439296231")
 
@@ -294,7 +294,8 @@ hakon_conditions <- hakon_clinical_harmonized %>%
   separate_rows(phenotypes_text, sep = ";") %>% 
   mutate(phenotypes_text = str_trim(phenotypes_text)) %>%
   left_join(condition_lookup_hakon, by = c("phenotypes_text" = "source_column_value")) %>% 
-  select(-phenotypes_text, -study, -source_column)
+  select(-phenotypes_text, -study, -source_column) %>%
+  distinct() #remove rows with different phenotypes_text but same conditionSourceText
 
 # %>% mutate(ontology_count = rowSums(!is.na(across(c(hpoCode, mondoCode, maxoCode, otherCode))))) 
 # %>% arrange(ontology_count)
@@ -311,23 +312,22 @@ hakon_ds <- hakon_clinical_harmonized %>%
   select(-diagnoses_text, -study, -source_column)
 
 hakon_conditions <- hakon_conditions %>% 
-  bind_rows(hakon_ds)
+  bind_rows(hakon_ds) %>% arrange(participantExternalId)
 ```
 
 Add age at condition observation (from Hakon, added directly to Condition table)
 ```{r}
 hakon_condition_ages <- read_xlsx(synGet("syn51181708")$path) %>% 
-  select(participant_external_id, condition_or_measure_source_text, age_at_condition_or_measure_observation)
+  select(participant_external_id, condition_or_measure_source_text, age_at_condition_or_measure_observation) %>% 
+  distinct()
 
 hakon_conditions <- hakon_conditions %>% 
   left_join(hakon_condition_ages,
             by = c("participantExternalId" = "participant_external_id",
                    "conditionMeasureSourceText" = "condition_or_measure_source_text"))
-
 ```
 
 
-Combine conditions + ds_diagnoses
 Create empty/all same value columns
 Select columns in order of DCA template
 
@@ -352,10 +352,133 @@ write_csv(hakon_condition, here::here("output", "hakon_condition.csv"))
 ```
 
 
+##### dbGaP SUBMISSION FILES
+
+First, check overlap between Broad manifest & clinical data
+```{r}
+hakon_broad_wgs <- read_tsv("C:/Users/pierrettelo/Documents/INCLUDE/2021 X01s/FV_249MK9XS_hakon-include-wgs.tsv")
+
+hakon_broad_rna <- read_tsv("C:/Users/pierrettelo/Documents/INCLUDE/2021 X01s/FV_2QD0Y620_hakon-include-rna.tsv")
+
+n_distinct(hakon_broad_wgs$collaborator_participant_id) #1134
+n_distinct(hakon_broad_rna$sample_alias) #379
+
+hakon_wgs_participants <- hakon_broad_wgs %>% select(participant_id = collaborator_participant_id) %>%
+  pull(participant_id)
+
+hakon_rna_participants <- hakon_broad_rna %>% select(sample_alias) %>% 
+  mutate(participant_id = str_extract(sample_alias, "^.*(?=_R1)")) %>% 
+  pull(participant_id)
+
+participants_with_any_seq <- unique(c(hakon_wgs_participants, hakon_rna_participants)) #1147
+
+hakon_dna_clinical_participants <- hakon_clinical_source %>% 
+  filter(analyte_type == "DNA") %>% 
+  pull(participant_id) #1140
+
+hakon_rna_clinical_participants <- hakon_clinical_source %>% 
+  filter(analyte_type == "RNA") %>% 
+  pull(participant_id) #384
+
+participants_with_clin <- (c(hakon_dna_clinical_participants, hakon_rna_clinical_participants)) #1152
+
+clin_but_no_seq <- setdiff(participants_with_clin, participants_with_any_seq) #5
+# these patients have NO seq (DNA or RNA) -> delete from dbGaP file
+
+```
+
+Another check:
+```{r}
+# setdiff(hakon_dna_clinical_participants, hakon_wgs_participants) #6
+# setdiff(hakon_wgs_participants, hakon_dna_clinical_participants) #0
+# 
+# setdiff(hakon_rna_clinical_participants, hakon_rna_participants) #5
+# setdiff(hakon_rna_participants, hakon_rna_clinical_participants) #0
+
+#see below - only 5 patients have NO seq (DNA or RNA) -> delete from dbGaP file
+unique(c(setdiff(hakon_dna_clinical_participants, hakon_wgs_participants), setdiff(hakon_rna_clinical_participants, hakon_rna_participants)))
+```
+Of the above 11:
+
+no DNA or RNA
+"KFDS1508310361" 
+"KFDS4451493159"
+"KFDS0051582897"
+"KFDS5396312025"
+"KFDS0620027956"
+
+RNA only
+"KFDS6970433974" 
+
+DNA only
+"KFDS9949593004"
+"KFDS7377609306"
+"KFDS8324321410"
+"KFDS1094210396" 
+"KFDS0225323816"
+
+=======================
+
+1. Subject-Consent Mapping File
+SUBJECT_ID, CONSENT, SEX
+
+2. Dictionary for the Subject-Consent Mapping File
+
+```{r}
+hakon_subject_consent_DS <- hakon_clinical_source %>%
+  mutate(SUBJECT_ID = participant_id,
+         CONSENT = "1",
+         SEX = case_when(
+           sex_original == "Male" ~ "1",
+           sex_original == "Female" ~ "2",
+           sex_original == "Not Reported" ~ "UNK"
+         )) %>% 
+  select(SUBJECT_ID, CONSENT, SEX) %>%
+  distinct() %>% 
+  filter(!SUBJECT_ID %in% clin_but_no_seq) %>% 
+  arrange(SUBJECT_ID) 
+
+#%>% filter(SUBJECT_ID %in% clin_but_no_seq)
+```
+
+```{r}
+hakon_subject_consent_DS %>%  
+  write_csv(here::here("output", "hakon_subject_consent_DS.csv"))
+```
+
+3. Subject-Sample Mapping File
+SUBJECT_ID, SAMPLE_ID
+
+4. Dictionary for the Subject-Sample Mapping File
+```{r}
+hakon_subject_sample_DS <- hakon_clinical_source %>% 
+  mutate(SUBJECT_ID = participant_id,
+         SAMPLE_ID = as.character(aliquot_id)) %>% 
+  select(SUBJECT_ID, SAMPLE_ID) %>% 
+  distinct() %>%
+  filter(!SUBJECT_ID %in% clin_but_no_seq) %>% 
+  arrange(SUBJECT_ID)
+```
 
 
+```{r}
+hakon_subject_sample_DS %>%  
+  write_csv(here::here("output", "hakon_subject_sample_DS.csv"))
+```
 
+Get Global IDs for Aliquot IDs:
 
+```{r}
+hakon_aliquot_dewrangle_input <- hakon_clinical_source %>% 
+  select(descriptor = aliquot_id) %>% 
+  mutate(fhir_resource_type = "specimen") %>% 
+  distinct()
+
+write_csv(hakon_aliquot_dewrangle_input, 
+          here::here("output", "hakon_aliquot_dewrangle_input.csv"))
+
+##TODO: haven't submitted these to dewrangle yet - wait to find out what Sample ID should be
+```
 
 
 
