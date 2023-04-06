@@ -126,7 +126,8 @@ write_csv(desmith_dewrangle_input,
 
 # submit manifest at dewrangle.com; save result to "output"
 
-desmith_global_ids <- read_csv(here::here("output", "global-descriptors-X01-deSmith.csv"))
+desmith_participant_global_ids <- read_csv(here::here("output", "global-descriptors-X01-deSmith.csv")) %>% 
+  filter(fhir_resource_type == "Patient")
 
 desmith_participant <- desmith_participant %>% 
   left_join(desmith_global_ids %>% select(descriptor, global_id),
@@ -286,7 +287,7 @@ desmith_biospecimen <- desmith_clinical_source %>%
          volumeUnit = NA,
          concentration = NA,
          concentrationUnit = NA,
-         laboratoryProcedure = NA,
+         laboratoryProcedure = "EDTA tube",
          biospecimenStorage = NA,
          sampleAvailability = "Unavailable") %>% 
   select(all_of(biospecimen_schemalabels)) %>% 
@@ -294,6 +295,29 @@ desmith_biospecimen <- desmith_clinical_source %>%
 
 ```
 
+Get Sample Global IDs:
+
+```{r}
+desmith_sample_dewrangle_input <- desmith_biospecimen %>% 
+  select(descriptor = `Sample External ID`) %>% 
+  mutate(fhir_resource_type = "specimen")
+
+write_csv(desmith_sample_dewrangle_input, 
+          here::here("output", "desmith_sample_dewrangle_input.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+desmith_sample_global_ids <- read_csv(here::here("output", "global-descriptors-X01-deSmith.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+
+desmith_biospecimen <- desmith_biospecimen %>% 
+  left_join(desmith_sample_global_ids %>% select(descriptor, global_id),
+            by = c("Sample External ID" = "descriptor")) %>% 
+  mutate(`Sample Global ID` = global_id) %>% 
+  select(-global_id)
+
+#%>% select(participantExternalId, global_id) %>% filter(is.na(global_id))
+```
 
 ```{r}
 write_csv(desmith_biospecimen, here::here("output", "desmith_biospecimen_TEST.csv"))

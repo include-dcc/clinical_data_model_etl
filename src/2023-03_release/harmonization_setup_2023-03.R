@@ -60,19 +60,19 @@ datafile_displaynames <- displayname_schemalabel_lookup %>%
   pull(display_name)
 
 
-# # CREATE TEMPLATES FOR FINAL TABLE MUTATE
+# # # CREATE TEMPLATES FOR FINAL TABLE MUTATE
+# # 
+# participant_schemalabels %>% datapasta::vector_paste_vertical()
+# # then select vector & use Addins > Toggle Vector Quotes
 # 
-participant_schemalabels %>% datapasta::vector_paste_vertical()
-# then select vector & use Addins > Toggle Vector Quotes
-
-condition_schemalabels %>% datapasta::vector_paste_vertical()
-# then select vector & use Addins > Toggle Vector Quotes
-
-biospecimen_schemalabels %>% datapasta::vector_paste_vertical()
-# then select vector & use Addins > Toggle Vector Quotes
-
-datafile_schemalabels %>% datapasta::vector_paste_vertical()
-# then select vector & use Addins > Toggle Vector Quotes
+# condition_schemalabels %>% datapasta::vector_paste_vertical()
+# # then select vector & use Addins > Toggle Vector Quotes
+# 
+# biospecimen_schemalabels %>% datapasta::vector_paste_vertical()
+# # then select vector & use Addins > Toggle Vector Quotes
+# 
+# datafile_schemalabels %>% datapasta::vector_paste_vertical()
+# # then select vector & use Addins > Toggle Vector Quotes
 
 
 # # ADD FOLDERS TO SYNAPSE PROJECTS

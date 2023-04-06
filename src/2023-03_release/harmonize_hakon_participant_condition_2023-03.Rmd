@@ -240,7 +240,8 @@ write_csv(hakon_dewrangle_input,
 
 # submit manifest at dewrangle.com; save result to "output"
 
-hakon_global_ids <- read_csv(here::here("output", "global-descriptors-X01-Hakon.csv"))
+hakon_participant_global_ids <- read_csv(here::here("output", "global-descriptors-X01-Hakon.csv")) %>% 
+  filter(fhir_resource_type == "Patient")
 
 hakon_participant <- hakon_participant %>% 
   left_join(hakon_global_ids %>% select(descriptor, global_id),
@@ -466,6 +467,55 @@ hakon_subject_sample_DS %>%
   write_csv(here::here("output", "hakon_subject_sample_DS.csv"))
 ```
 
+
+##### BIOSPECIMEN
+
+"whole blood DNA from EDTA tube"
+
+from Christina on Slack:
+When we receive either sample_id or aliquot_id from the investigator (but not both),
+we ingest the given specimen ID column into both external_sample_id and
+external_aliquot_id . This is so we do not leave these fields as NULL in the dataservice
+and to keep the consistency of “always pull from the aliquot ID column for dbgap files”
+Again, this ID column will match what is in the Broad’s manifest.
+
+##For now, leave Sample ID blank, use Aliquot IDs to create Global IDs
+
+Blood = DNA
+PBMC = RNA    [Do PBMCs come from the same draw as the Blood??]
+Saliva = DNA
+
+
+```{r}
+hakon_biospecimen <- hakon_clinical_source %>% 
+  select(participant_id, aliquot_id, sample_method_of_procurement, 
+         age_at_sample_procurement_days, sample_composition, analyte_type) %>% 
+  mutate(studyCode = "X01-Hakon",
+         participantExternalId = participant_id,
+         sampleGlobalId = NA,
+         sampleExternalId = NA,
+         sampleType = analyte_type,
+         ageAtBiospecimenCollection = 0,
+         parentSampleGlobalId = NA,
+         parentSampleExternalId = NA,
+         parentSampleType = sample_composition,
+         collectionGlobalId = NA,
+         collectionExternalId = NA,
+         collectionSampleType = sample_method_of_procurement,
+         containerGlobalId = NA,
+         containerExternalId = aliquot_id,
+         volume = NA,
+         volumeUnit = NA,
+         concentration = NA,
+         concentrationUnit = NA,
+         laboratoryProcedure = "EDTA tube",
+         biospecimenStorage = NA,
+         sampleAvailability = "TBD") %>% 
+  select(all_of(biospecimen_schemalabels)) %>% 
+  setNames(biospecimen_displaynames)
+
+```
+
 Get Global IDs for Aliquot IDs:
 
 ```{r}
@@ -477,9 +527,22 @@ hakon_aliquot_dewrangle_input <- hakon_clinical_source %>%
 write_csv(hakon_aliquot_dewrangle_input, 
           here::here("output", "hakon_aliquot_dewrangle_input.csv"))
 
-##TODO: haven't submitted these to dewrangle yet - wait to find out what Sample ID should be
+# submit manifest at dewrangle.com; save result to "output"
+
+hakon_aliquot_global_ids <- read_csv(here::here("output", "global-descriptors-X01-Hakon.csv")) %>% 
+  filter(fhir_resource_type == "Specimen") %>% 
+  mutate(descriptor = as.double(descriptor))
+
+hakon_biospecimen <- hakon_biospecimen %>% 
+  left_join(hakon_aliquot_global_ids %>% select(descriptor, global_id),
+            by = c("Container External ID" = "descriptor")) %>% 
+  mutate(`Container Global ID` = global_id) %>% 
+  select(-global_id)
 ```
 
+```{r}
+write_csv(hakon_biospecimen, here::here("output", "hakon_biospecimen_TEST.csv"))
+```
 
 
 
