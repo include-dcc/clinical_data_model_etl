@@ -384,7 +384,7 @@ hakon_rna_clinical_participants <- hakon_clinical_source %>%
 participants_with_clin <- (c(hakon_dna_clinical_participants, hakon_rna_clinical_participants)) #1152
 
 clin_but_no_seq <- setdiff(participants_with_clin, participants_with_any_seq) #5
-# these patients have NO seq (DNA or RNA) -> delete from dbGaP file
+# these patients have NO seq (DNA or RNA) -> delete from Subject-Sample DS, leave in Subject-Consent DS
 
 ```
 
@@ -420,7 +420,7 @@ DNA only
 
 =======================
 
-1. Subject-Consent Mapping File
+1. Subject-Consent Mapping File - INCLUDE the 5 participants with no seq
 SUBJECT_ID, CONSENT, SEX
 
 2. Dictionary for the Subject-Consent Mapping File
@@ -436,7 +436,7 @@ hakon_subject_consent_DS <- hakon_clinical_source %>%
          )) %>% 
   select(SUBJECT_ID, CONSENT, SEX) %>%
   distinct() %>% 
-  filter(!SUBJECT_ID %in% clin_but_no_seq) %>% 
+  #filter(!SUBJECT_ID %in% clin_but_no_seq) %>% 
   arrange(SUBJECT_ID) 
 
 #%>% filter(SUBJECT_ID %in% clin_but_no_seq)
@@ -485,6 +485,7 @@ Blood = DNA
 PBMC = RNA    [Do PBMCs come from the same draw as the Blood??]
 Saliva = DNA
 
+Leave in the participants with no seq in case we want the record for the VBR
 
 ```{r}
 hakon_biospecimen <- hakon_clinical_source %>% 
@@ -495,7 +496,7 @@ hakon_biospecimen <- hakon_clinical_source %>%
          sampleGlobalId = NA,
          sampleExternalId = NA,
          sampleType = analyte_type,
-         ageAtBiospecimenCollection = 0,
+         ageAtBiospecimenCollection = age_at_sample_procurement_days,
          parentSampleGlobalId = NA,
          parentSampleExternalId = NA,
          parentSampleType = sample_composition,
@@ -545,8 +546,65 @@ write_csv(hakon_biospecimen, here::here("output", "hakon_biospecimen_TEST.csv"))
 ```
 
 
+#### Make up Sample External IDs for seq pipeline
+Christina can't use Container IDs, so I need to add placeholder Sample IDs
+Get Global IDs
+Later - get actual Sample External IDs from Mateusz
+
+```{r}
+hakon_biospecimen <- read_csv(here::here("output", "hakon_biospecimen_TEST.csv"))
+
+hakon_biospecimen <- hakon_biospecimen %>% 
+  mutate(`Sample External ID` = paste0("aliquot_", `Container External ID`, "_parent"))
+
+hakon_sample_dewrangle_input <- hakon_biospecimen %>% 
+  select(descriptor = `Sample External ID`) %>% 
+  mutate(fhir_resource_type = "specimen")
+
+write_csv(hakon_sample_dewrangle_input, here::here("output", "hakon_sample_dewrangle_input.csv"))
+
+hakon_sample_global_ids <- read_csv(here::here("output", "global-descriptors-X01-Hakon.csv")) %>% 
+  filter(str_detect(descriptor, "parent")) %>% 
+  select(descriptor, global_id)
+
+hakon_biospecimen <- hakon_biospecimen %>% 
+  left_join(hakon_sample_global_ids, by = c(`Sample External ID` = "descriptor")) %>% 
+  mutate(`Sample Global ID` = global_id,
+         `Parent Sample Type` = case_when(
+           `Parent Sample Type` == "PBMC" ~ "PBMCs",
+           `Parent Sample Type` == "Blood" ~ "Peripheral Whole Blood",
+           `Parent Sample Type` == "Saliva" ~ "Saliva"),
+         `Collection Sample Type` = case_when(
+           `Collection Sample Type` == "Blood Draw" ~ "Peripheral Whole Blood",
+           `Collection Sample Type` == "Saliva Kit" ~ "Saliva"
+         )) %>% 
+  select(-global_id)
+
+write_csv(hakon_biospecimen, here::here("output", "hakon_biospecimen_TEST.csv"))
+
+```
 
 
+#### Modify Participant manifest for Christina
+Seq pipeline needs specific family relationships -> replace "Other relative" with
+original relationship from Hakon
+
+Christina filtered all_cohorts_participant and uploaded to Data Tracker,
+then I downloaded for this
+```{r}
+hakon_participant_for_seq <- read_csv(here::here("data", "FV_4D2JPH5S_hakon_participant_manifest.csv"))
+```
+
+```{r}
+hakon_participant_for_seq %>% 
+  left_join(hakon_clinical_source %>% 
+              select(participant_id, family_relationship) %>% 
+              distinct(),
+            by = c(`Participant External ID` = "participant_id")) %>% 
+  rename(original_family_relationship = family_relationship) %>% 
+  relocate(original_family_relationship, .after = `Family Relationship`) %>% 
+  write_csv(here::here("output", "hakon_participant_for_seq.csv"))
+```
 
 
 
