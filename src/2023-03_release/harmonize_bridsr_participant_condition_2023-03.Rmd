@@ -191,7 +191,51 @@ write_csv(bridsr_condition, here::here("output", "bridsr_condition.csv"))
 ```
 
 
+##### Add Global IDs to Eric's v2 biospecimen manifest
+
+```{r}
+bridsr_v2_specimen <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/BRI-DSR/specimen.csv") %>% 
+  rename(`Participant External ID` = `Participant ID`,
+         `Collection External ID` = `Collection ID`,
+         `Sample External ID` = `Sample ID`,
+         `Container External ID` = `Container ID`,
+         `Parent Sample External ID` = `Parent Sample ID`
+  )
+
+bridsr_v2_specimen_dewrangle_input <- bridsr_v2_specimen %>% 
+  select(descriptor = `Sample External ID`) %>% 
+  mutate(fhir_resource_type = "specimen")
+
+write_csv(bridsr_v2_specimen_dewrangle_input, here::here("output", "bridsr_v2_specimen_dewrangle_input.csv"))
+
+bridsr_v2_specimen_global_ids <- read_csv(here::here("output", "global-descriptors-BRI-DSR.csv")) %>% 
+  filter(str_detect(fhir_resource_type, "Specimen")) %>% 
+  select(descriptor, global_id) %>% arrange(descriptor)
+
+bridsr_v2_specimen <- bridsr_v2_specimen %>% 
+  left_join(bridsr_v2_specimen_global_ids, by = c(`Sample External ID` = "descriptor")) %>% 
+  rename(`Sample Global ID` = global_id) %>% 
+  relocate(`Sample Global ID`, .before = `Sample External ID`)
+
+write_csv(bridsr_v2_specimen, here::here("output", "bridsr_v2_specimen_with_global_ids.csv"))
+
+```
 
 
+#### Rename cols in Eric's v2 file manifest
+
+```{r}
+bridsr_v2_datafile <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/BRI-DSR/file_meta_data.csv") %>% 
+    rename(`Participant External ID` = `Participant ID`,
+         `Sample External ID` = `Sample ID`,
+         `File External ID` = `File ID`,
+         `File Name` = Filename,
+         `File Format` = Format,
+         `File Size` = Size
+  )
+
+write_csv(bridsr_v2_datafile, here::here("output", "bridsr_v2_datafile_renamed.csv"))
+
+```
 
 

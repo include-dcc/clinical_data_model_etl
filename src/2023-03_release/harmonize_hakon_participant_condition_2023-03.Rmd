@@ -487,6 +487,8 @@ Saliva = DNA
 
 Leave in the participants with no seq in case we want the record for the VBR
 
+Transform sample types to match what is in Portal currently
+
 ```{r}
 hakon_biospecimen <- hakon_clinical_source %>% 
   select(participant_id, aliquot_id, sample_method_of_procurement, 
@@ -509,9 +511,17 @@ hakon_biospecimen <- hakon_clinical_source %>%
          volumeUnit = NA,
          concentration = NA,
          concentrationUnit = NA,
-         laboratoryProcedure = "EDTA tube",
+         laboratoryProcedure = NA,
          biospecimenStorage = NA,
-         sampleAvailability = "TBD") %>% 
+         sampleAvailability = "TBD") %>%
+  mutate(parentSampleType = case_when(
+           parentSampleType == "PBMC" ~ "PBMCs",
+           parentSampleType == "Blood" ~ "Peripheral Whole Blood",
+           parentSampleType == "Saliva" ~ "Saliva"),
+         collectionSampleType = case_when(
+           collectionSampleType == "Blood Draw" ~ "Peripheral Whole Blood",
+           collectionSampleType == "Saliva Kit" ~ "Saliva"
+         )) %>% 
   select(all_of(biospecimen_schemalabels)) %>% 
   setNames(biospecimen_displaynames)
 
@@ -531,18 +541,14 @@ write_csv(hakon_aliquot_dewrangle_input,
 # submit manifest at dewrangle.com; save result to "output"
 
 hakon_aliquot_global_ids <- read_csv(here::here("output", "global-descriptors-X01-Hakon.csv")) %>% 
-  filter(fhir_resource_type == "Specimen") %>% 
-  mutate(descriptor = as.double(descriptor))
+  filter(fhir_resource_type == "Specimen" & !str_detect(descriptor, "aliquot"))
 
-hakon_biospecimen <- hakon_biospecimen %>% 
+hakon_biospecimen <- hakon_biospecimen %>%
+  mutate(`Container External ID` = as.character(`Container External ID`)) %>% 
   left_join(hakon_aliquot_global_ids %>% select(descriptor, global_id),
             by = c("Container External ID" = "descriptor")) %>% 
   mutate(`Container Global ID` = global_id) %>% 
   select(-global_id)
-```
-
-```{r}
-write_csv(hakon_biospecimen, here::here("output", "hakon_biospecimen_TEST.csv"))
 ```
 
 
@@ -552,8 +558,6 @@ Get Global IDs
 Later - get actual Sample External IDs from Mateusz
 
 ```{r}
-hakon_biospecimen <- read_csv(here::here("output", "hakon_biospecimen_TEST.csv"))
-
 hakon_biospecimen <- hakon_biospecimen %>% 
   mutate(`Sample External ID` = paste0("aliquot_", `Container External ID`, "_parent"))
 
@@ -569,18 +573,10 @@ hakon_sample_global_ids <- read_csv(here::here("output", "global-descriptors-X01
 
 hakon_biospecimen <- hakon_biospecimen %>% 
   left_join(hakon_sample_global_ids, by = c(`Sample External ID` = "descriptor")) %>% 
-  mutate(`Sample Global ID` = global_id,
-         `Parent Sample Type` = case_when(
-           `Parent Sample Type` == "PBMC" ~ "PBMCs",
-           `Parent Sample Type` == "Blood" ~ "Peripheral Whole Blood",
-           `Parent Sample Type` == "Saliva" ~ "Saliva"),
-         `Collection Sample Type` = case_when(
-           `Collection Sample Type` == "Blood Draw" ~ "Peripheral Whole Blood",
-           `Collection Sample Type` == "Saliva Kit" ~ "Saliva"
-         )) %>% 
+  mutate(`Sample Global ID` = global_id) %>% 
   select(-global_id)
 
-write_csv(hakon_biospecimen, here::here("output", "hakon_biospecimen_TEST.csv"))
+write_csv(hakon_biospecimen, here::here("output", "hakon_biospecimen_DRAFT.csv"))
 
 ```
 

@@ -246,7 +246,7 @@ htp_family_types <- htp_relationships %>%
   arrange(familyRelationship, .by_group = TRUE) %>% #alphabetical order for consistency 
   mutate(family_list = paste(familyRelationship, collapse = "|"), .after = family_id) %>% 
   mutate(family_count = max(rowSums(!is.na(across(c(motherId, fatherId, siblingId,
-                                                otherFamilyMemberId))))), .after = family_list) %>% 
+                                                    otherFamilyMemberId))))), .after = family_list) %>% 
   select(family_id, family_list, family_count) %>%
   distinct() %>% 
   ungroup() %>% #make sure to ungroup or this will run SLOW
@@ -453,3 +453,67 @@ htp_condition <- htp_conditions %>%
 ```{r}
 write_csv(htp_condition, here::here("output", "htp_condition.csv"))
 ```
+
+
+##### Add Global IDs to Eric's v2 sample manifest and rename cols in sample manifests
+
+```{r}
+htp_sample <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/HTP/htp_sample.csv") %>% 
+  rename(`Participant External ID` = `Subject ID`,
+         `Sample External ID` = `Sample ID`,
+         `Age at Biospecimen Collection` = `Age at Collection`,
+         `Parent Sample External ID` = `Parent Sample ID`
+  )
+
+htp_sample_dewrangle_input <- htp_sample %>%
+  select(descriptor = `Sample External ID`) %>% 
+  mutate(fhir_resource_type = "specimen")
+
+write_csv(htp_sample_dewrangle_input, here::here("output", "htp_sample_dewrangle_input.csv"))
+
+htp_sample_global_ids <- read_csv(here::here("output", "global-descriptors-HTP.csv")) %>% 
+  filter(str_detect(fhir_resource_type, "Specimen")) %>% 
+  select(descriptor, global_id)
+
+htp_sample <- htp_sample %>% 
+  left_join(htp_sample_global_ids, by = c(`Sample External ID` = "descriptor")) %>% 
+  rename(`Sample Global ID` = global_id) %>% 
+  relocate(`Sample Global ID`, .before = `Sample External ID`)
+
+write_csv(htp_sample, here::here("output", "htp_sample_renamed_with_global_ids.csv"))
+
+```
+
+
+```{r}
+htp_aliquot <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/HTP/aliquot.csv") %>% 
+  rename(`Sample External ID` = `Sample ID`,
+         `Container External ID` = Barcode,
+         Volume = `Vial Volume`)
+  
+
+updated_htp_sample_collection_supplement <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/HTP/updated-htp_sample_collection_supplement.csv") %>% 
+  rename(`Participant External ID` = `Subject ID`,
+         `Sample External ID` = `Sample ID`,
+         `Age at Biospecimen Collection` = `Age at Collection`,
+         `Parent Sample External ID` = `Parent Sample ID`
+  )
+
+write_csv(htp_aliquot, here::here("output", "htp_aliquot_renamed.csv"))
+
+write_csv(updated_htp_sample_collection_supplement, here::here("output", "updated_htp_sample_collection_supplement_renamed.csv"))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
