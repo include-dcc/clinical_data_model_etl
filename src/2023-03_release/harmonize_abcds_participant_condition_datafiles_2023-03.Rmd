@@ -101,6 +101,9 @@ Family ID = ABCDS_ID_DS if exists, otherwise = `NA`
 ```{r}
 # filter out sibs 10233 10224 10237 10235 who don't have data
 # DS patients with these sibs will show as Proband-only, no Family ID
+
+#TODO: 10233 and 10235 DIDN'T get filtered out -> FIX NEXT TIME
+
 sibs_with_data <- abcds_control_linkage %>% 
   filter(ABCDS_ID_SC %in% abcds_demo_ctl$subject_label) %>% 
   select(ABCDS_ID_SC, ABCDS_ID_DS)

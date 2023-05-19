@@ -7,7 +7,7 @@ gs4_deauth()
 
 # read in sheet with metadata for all studies
 all_cohorts_study <- read_sheet(
-  "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit?pli=1#gid=726242842",
+  "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=726242842",
   sheet = "study_metadata_2023-03")
 
 write_csv(all_cohorts_study, here::here("output", "all_cohorts_study.csv"))

@@ -273,7 +273,8 @@ htp_participant <- htp_participant %>%
 ```
 
 Get Global IDs:
-
+**NOTE:** some of my global IDs have been replaced with KF IDs - be sure to download the 
+latest Global IDs from Dewrangle next time
 ```{r}
 htp_dewrangle_input <- htp_participant %>% 
   distinct(participantExternalId) %>% 
@@ -490,7 +491,7 @@ htp_aliquot <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-File
   rename(`Sample External ID` = `Sample ID`,
          `Container External ID` = Barcode,
          Volume = `Vial Volume`)
-  
+
 
 updated_htp_sample_collection_supplement <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/HTP/updated-htp_sample_collection_supplement.csv") %>% 
   rename(`Participant External ID` = `Subject ID`,
@@ -504,6 +505,165 @@ write_csv(htp_aliquot, here::here("output", "htp_aliquot_renamed.csv"))
 write_csv(updated_htp_sample_collection_supplement, here::here("output", "updated_htp_sample_collection_supplement_renamed.csv"))
 
 ```
+
+
+#### MATT'S VBR EXTRACT - Experimentation
+
+```{r}
+matt_vbr <- read_tsv(synGet("syn51384359")$path)
+
+```
+
+Get unique hierarchies
+```{r}
+matt_vbr %>% 
+  select(CollectionHierarchy) %>% 
+  mutate(hierarchy_types = str_remove_all(CollectionHierarchy, "HTP.*?(?=_)")) %>%
+  mutate(hierarchy_types = str_remove_all(hierarchy_types, "_")) %>%
+  select(hierarchy_types) %>% 
+  distinct() %>%
+  arrange(desc(hierarchy_types)) %>% 
+  view()
+```
+
+
+Which lab procedure goes with which sample type
+```{r}
+matt_vbr %>% 
+  select(CollectionSampleType, ParentSampleType, SampleType, LaboratoryProcedure) %>% 
+  distinct() %>% 
+  arrange(desc(CollectionSampleType), desc(ParentSampleType)) %>% 
+  view()
+```
+
+
+#### Jamed list of IDs with no data
+
+```{r}
+no_data <- c("HTP0153", "HTP0157", "HTP0164", "HTP0167", "HTP0168", "HTP0169", "HTP0170", "HTP0171", "HTP0173", "HTP0174", "HTP0177", "HTP0178", "HTP0188", "HTP0189", "HTP0190")
+
+htp_clinical_harmonized %>% 
+  filter(participantExternalId %in% no_data)
+
+```
+
+
+#### Check my original Global IDs against Christina's
+
+```{r}
+# global IDs i created in dewrangle from Eric's v2 manifest
+old_global_ids <- read_csv(here::here("output", "global-descriptors-HTP.csv"))
+
+# global IDs that Christina and Marcel curated with original KF IDs
+new_global_ids <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/htp_global_kfids_for_pierrette.csv")
+```
+
+```{r}
+new_global_ids %>% filter(str_detect(descriptor, "84A2_RNA"))
+```
+
+
+```{r}
+old_global_ids %>% 
+  left_join(new_global_ids %>% select(-fhir_resource_type), by = "descriptor") %>% 
+  #filter(!is.na(global_id.y)) %>% 
+  view()
+```
+
+
+##### Swap out global IDs
+
+```{r}
+# get all_cohorts_participant
+all_cohorts_participant <- read_csv(synGet("syn51216460")$path)
+
+
+# download latest Global IDs from Dewrangle
+# curated with original KFIDs by Christina & Marcel
+new_global_ids <- read_csv(here::here("output", "global-descriptors-htp-WITH-KFIDS.csv"))
+
+new_global_ids %>% janitor::get_dupes()
+```
+
+Participant IDs Changelog:
+```{r}
+all_cohorts_participant %>% 
+  filter(`Study Code` == "HTP") %>% 
+  select(`Study Code`, `Participant External ID`, `Participant Global ID`) %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Participant External ID" = "descriptor")) %>% 
+  mutate(id_changed = (`Participant Global ID` != new_global_id)) %>% 
+  write_csv(here::here("output", "htp_participants_id_changelog.csv"))
+
+# 535 changed, 165 not changed
+```
+
+Change in all_cohorts_participant
+ALSO change X01-Hakon to X01-Hakonarson
+```{r}
+all_cohorts_participant %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Participant External ID" = "descriptor")) %>% 
+  relocate(new_global_id, .after = `Participant Global ID`) %>%
+  mutate(updated_global_id = ifelse(!is.na(new_global_id), new_global_id, `Participant Global ID`), .after = new_global_id) %>% 
+  select(-`Participant Global ID`, -new_global_id) %>% 
+  rename(`Participant Global ID` = updated_global_id) %>% 
+  mutate(`Study Code` = str_replace(`Study Code`, "X01-Hakon", "X01-Hakonarson")) %>% 
+  write_csv(here::here("output", "all_cohorts_participant_2023-05-17.csv"))
+  
+```
+
+
+Change X01-Hakon in Conditions & Study
+```{r}
+all_cohorts_condition <- read_csv(synGet("syn51216464")$path)
+all_cohorts_study <- read_csv(synGet("syn51216461")$path)
+
+```
+
+```{r}
+all_cohorts_study %>% 
+  mutate(`Study Code` = str_replace(`Study Code`, "X01-Hakon", "X01-Hakonarson")) %>% 
+  write_csv(here::here("output", "all_cohorts_study_2023-05-17.csv"))
+
+all_cohorts_condition %>% 
+  mutate(`Study Code` = str_replace(`Study Code`, "X01-Hakon", "X01-Hakonarson")) %>% 
+  write_csv(here::here("output", "all_cohorts_condition_2023-05-17.csv"))
+```
+
+
+Specimen IDs changelog:
+```{r}
+# get Christina's manifest with samples and collection samples
+FV_NGY8HVR3_htp_combined_samples_with_globals <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/FV_NGY8HVR3_htp-combined-samples-with-globals.csv")
+
+FV_NGY8HVR3_htp_combined_samples_with_globals %>% 
+  select(`Participant External ID`, `Sample External ID`, `Sample Global ID`) %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Sample External ID" = "descriptor")) %>% 
+  mutate(id_changed = (`Sample Global ID` != new_global_id)) %>% 
+  write_csv(here::here("output", "htp_samples_AND_COLLECTIONS_id_changelog.csv"))
+```
+
+Change the sample manifest:
+```{r}
+FV_NGY8HVR3_htp_combined_samples_with_globals %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Sample External ID" = "descriptor")) %>% 
+  relocate(new_global_id, .after = `Sample Global ID`) %>%
+  select(-`Sample Global ID`) %>% 
+  rename(`Sample Global ID` = new_global_id) %>% 
+  write_csv(here::here("output", "htp_samples_AND_COLLECTIONS_with_KF_global_ids_2023-05-18.csv"))
+```
+
+
+
+
+
+
+
+
+
 
 
 
