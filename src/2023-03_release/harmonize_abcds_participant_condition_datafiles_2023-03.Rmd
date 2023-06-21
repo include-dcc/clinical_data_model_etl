@@ -269,6 +269,9 @@ condition_lookup_abcds <- read_sheet("https://docs.google.com/spreadsheets/d/1cH
 ie. highlighted in grey or blue in `abcds_dic_harmonizing.xlsx`
 - Pull in karyotype
 
+**FIX LATER: 20 pts from Karyotype table do not have karyotype. `NA` is already in condition_codes_v3 as general DS -> find out why it doesn't get pulled in**
+**23001 and 23002 not in karyotype table b/c they don't have BL data -> add manually**
+
 ```{r}
 abcds_health_BL_harmonized <- abcds_health_BL %>% 
   select(-c(site_id, event_code, event_label, hh_cancer, hh_diabetes, hh_done, hh_fracture_5yr, hh_fracture_loc, ends_with("status"), ends_with("treated"), hh_hep_b_carrier, hh_hep_b_immune, hh_hep_b_vaccine, starts_with("hh_hrt_"), hh_menopausal, hh_menopausal_onset, hh_menopausal_status, hh_menstruated, hh_ndreason, update_stamp)) %>% 

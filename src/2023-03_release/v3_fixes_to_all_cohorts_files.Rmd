@@ -1,0 +1,263 @@
+---
+title: "v3 fixes to all_cohorts files"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+
+synLogin()
+```
+
+##### HTP: Swap out my global IDs for KF IDs
+
+```{r}
+# get all_cohorts_participant
+all_cohorts_participant <- read_csv(synGet("syn51216460")$path)
+
+
+# download latest Global IDs from Dewrangle
+# curated with original KFIDs by Christina & Marcel
+new_global_ids <- read_csv(here::here("output", "global-descriptors-htp-WITH-KFIDS.csv"))
+
+new_global_ids %>% janitor::get_dupes()
+```
+
+
+Participant IDs Changelog:
+```{r}
+all_cohorts_participant %>% 
+  filter(`Study Code` == "HTP") %>% 
+  select(`Study Code`, `Participant External ID`, `Participant Global ID`) %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Participant External ID" = "descriptor")) %>% 
+  mutate(id_changed = (`Participant Global ID` != new_global_id)) %>% 
+  write_csv(here::here("output", "htp_participants_id_changelog.csv"))
+
+# 535 changed, 165 not changed
+```
+
+
+Change in all_cohorts_participant
+#### ALSO change X01-Hakon to X01-Hakonarson
+```{r}
+all_cohorts_participant %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Participant External ID" = "descriptor")) %>% 
+  relocate(new_global_id, .after = `Participant Global ID`) %>%
+  mutate(updated_global_id = ifelse(!is.na(new_global_id), new_global_id, `Participant Global ID`), .after = new_global_id) %>% 
+  select(-`Participant Global ID`, -new_global_id) %>% 
+  rename(`Participant Global ID` = updated_global_id) %>% 
+  mutate(`Study Code` = str_replace(`Study Code`, "X01-Hakon", "X01-Hakonarson")) %>% 
+  write_csv(here::here("output", "all_cohorts_participant_2023-05-17.csv"))
+
+```
+
+
+#### Change X01-Hakon in Conditions & Study
+```{r}
+all_cohorts_condition <- read_csv(synGet("syn51216464")$path)
+all_cohorts_study <- read_csv(synGet("syn51216461")$path)
+
+```
+
+
+```{r}
+all_cohorts_study %>% 
+  mutate(`Study Code` = str_replace(`Study Code`, "X01-Hakon", "X01-Hakonarson")) %>% 
+  write_csv(here::here("output", "all_cohorts_study_2023-05-17.csv"))
+
+all_cohorts_condition %>% 
+  mutate(`Study Code` = str_replace(`Study Code`, "X01-Hakon", "X01-Hakonarson")) %>% 
+  write_csv(here::here("output", "all_cohorts_condition_2023-05-17.csv"))
+```
+
+
+Specimen IDs changelog:
+```{r}
+# get Christina's manifest with samples and collection samples
+FV_NGY8HVR3_htp_combined_samples_with_globals <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/FV_NGY8HVR3_htp-combined-samples-with-globals.csv")
+
+FV_NGY8HVR3_htp_combined_samples_with_globals %>% 
+  select(`Participant External ID`, `Sample External ID`, `Sample Global ID`) %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Sample External ID" = "descriptor")) %>% 
+  mutate(id_changed = (`Sample Global ID` != new_global_id)) %>% 
+  write_csv(here::here("output", "htp_samples_AND_COLLECTIONS_id_changelog.csv"))
+```
+
+
+Change the sample manifest:
+```{r}
+FV_NGY8HVR3_htp_combined_samples_with_globals %>% 
+  left_join(new_global_ids %>% select(descriptor, new_global_id = global_id),
+            by = c("Sample External ID" = "descriptor")) %>% 
+  relocate(new_global_id, .after = `Sample Global ID`) %>%
+  select(-`Sample Global ID`) %>% 
+  rename(`Sample Global ID` = new_global_id) %>% 
+  write_csv(here::here("output", "htp_samples_AND_COLLECTIONS_with_KF_global_ids_2023-05-18.csv"))
+```
+
+
+#### DSC - add MONDO codes for 6 participants who left ds_specific_diagnosis blank
+
+```{r}
+# get all_cohorts_condition
+all_cohorts_condition <- read_csv(synGet("syn51216464")$path)
+
+# get dsc source data
+dsc_ihq <- read_csv(synGet("syn26445517")$path)
+
+```
+
+```{r}
+six_without_ds_diagnosis <- c("11296", "12481", "12633", "12657", "12721", "13056")
+
+dsc_ihq %>% 
+  filter(patient_id %in% six_without_ds_diagnosis) %>%
+  mutate(`Study Code` = "DSC",
+         `Participant External ID` = as.character(patient_id),
+         `Event ID` = as.character(session_id),
+         `Event Type` = "Survey",
+         `Condition or Measure Source Text` = "Down syndrome - specific diagnosis not provided",
+         `Age At Condition or Measure Observation` = NA,
+         `Condition Interpretation` = "Observed",
+         `Condition Status` = "History Of",
+         `Condition Data Source` = "Self-reported",
+         `HPO Label` = NA,
+         `HPO Code` = NA,
+         `MONDO Label` = "Down syndrome",
+         `MONDO Code` = "MONDO:0008608",
+         `MAXO Label` = NA,
+         `MAXO Code` = NA,
+         `Other Label` = NA,
+         `Other Code` = NA,
+         `Measure Value` = NA,
+         `Measure Unit` = NA) %>% 
+  select(-contains("_")) %>% 
+  bind_rows(all_cohorts_condition) %>%
+  write_csv(here::here("output", "all_cohorts_condition_2023-05-25.csv"))
+
+```
+
+
+### ABCDS - add MONDO codes for 22 participants who didn't have karyotype data
+
+```{r}
+all_cohorts_participant <- read_csv(synGet("syn51216460")$path)
+all_cohorts_condition <- read_csv(synGet("syn51216464")$path)
+
+
+ABCDS_D21_QA <- c("pt-23rgqn89ft", "pt-2fmw236n3z", "pt-2q9hncqgad", "pt-4d2b3khehd", "pt-4xjepzbmqn", "pt-6ewrk9xr2r", "pt-6mexz2gge2", "pt-6mkrmp3c8h", "pt-73g2kx64x7", "pt-7ek927e2b7", "pt-7j96cxf8fg", "pt-8e6dfm2tf7", "pt-8jgyene3ke", "pt-8mfmexxgjd", "pt-8qdrjm4kyq", "pt-98hcfxgrtf", "pt-9txqfbejqe", "pt-ahipt2e798", "pt-ax7xfdej6e", "pt-baf7hp4jcg", "pt-bd4wfkjrec", "pt-c2b4pq3jxq", "pt-cmwmexc87r", "pt-cx6wxe3zzr", "pt-dbmkfxpmnk", "pt-dddjgwn4tz", "pt-dg7zyh89kj", "pt-dgk3qj4zgf", "pt-dqri3qt3h6", "pt-dt7wptjkaf", "pt-e2pi3i6yi8", "pt-ecqe829gdt", "pt-epn8b2piek", "pt-eqxi2d98t6", "pt-ewhemibzbi", "pt-f2y3mhtdmz", "pt-f9jg62jb9j", "pt-gaq7fphiyc", "pt-gc8dnddzif", "pt-h6cdhxe4zf", "pt-hc8edp8a8c", "pt-ibeajp8dfg", "pt-jiqnpnmmdk", "pt-jjqizpzc9p", "pt-mhz7whk24i", "pt-miwfxq4qze", "pt-mmhyzc3xyh", "pt-mwc8n9k2jq", "pt-nf62qqn3wr", "pt-p6iypxr84z", "pt-pjj83a6ce9", "pt-r3wj62az92", "pt-rdnbkptfck", "pt-rwj6mxzgqa", "pt-rytnyybn4z", "pt-t2kfwdd7qb", "pt-t98yjex2tw", "pt-tgifcz78ty", "pt-tig7e9kbbx", "pt-trbdq8bidw", "pt-tyknt83e28", "pt-xpt274y7ht", "pt-zhj73xfhyt")
+
+ABCDS_wrong_external <- all_cohorts_participant %>% 
+  filter(`Participant Global ID` %in% ABCDS_D21_QA) %>% 
+  filter(`Down Syndrome Status` == "T21") %>% 
+  pull(`Participant External ID`)
+
+all_cohorts_condition %>% 
+  filter(`Participant External ID` %in% ABCDS_wrong_external) %>% view()
+
+# these are 20 participants without karyotype and 2 (23001, 23002) who don't have any BL data (and therefore also don't have karyotype)
+```
+
+
+Add DS diagnosis to all_cohorts_condition:
+
+```{r}
+all_cohorts_condition %>% 
+  add_row(`Participant External ID` = ABCDS_wrong_external, .before = 1) %>% 
+  filter(is.na(`Study Code`)) %>% 
+  mutate(`Study Code` = "ABC-DS",
+         `Participant External ID` = `Participant External ID`,
+         `Event ID` = NA,
+         `Event Type` = NA,
+         `Condition or Measure Source Text` = "Down syndrome - karyotype not provided",
+         `Age At Condition or Measure Observation` = NA,
+         `Condition Interpretation` = "Observed",
+         `Condition Status` = "History Of",
+         `Condition Data Source` = "Clinical",
+         `HPO Label` = NA,
+         `HPO Code` = NA,
+         `MONDO Label` = "Down syndrome",
+         `MONDO Code` = "MONDO:0008608",
+         `MAXO Label` = NA,
+         `MAXO Code` = NA,
+         `Other Label` = NA,
+         `Other Code` = NA,
+         `Measure Value` = NA,
+         `Measure Unit` = NA) %>% 
+  bind_rows(all_cohorts_condition) %>% 
+  write_csv(here::here("output", "all_cohorts_condition_2023-05-26.csv"))
+
+```
+
+
+##### HTP: Checking if I have clinical data for the 15 missing P4C samples
+
+```{r}
+P4C_15_samples <- c("HTP0084A2_RNA_paxgene", "HTP0085B2_RNA_paxgene", "HTP0204A_RNA_paxgene", "HTP0206B_RNA_paxgene", "HTP0288B_RNA_paxgene", "HTP0302B_RNA_paxgene", "HTP0310A_RNA_paxgene", "HTP0322B_RNA_paxgene", "HTP0326A_RNA_paxgene", "HTP0328A_RNA_paxgene", "HTP0332A_RNA_paxgene", "HTP0338B_RNA_paxgene", "HTP0348A_RNA_paxgene", "HTP0351A_RNA_paxgene", "HTP0442A2_RNA_paxgene") %>% str_extract("^.*[:digit:]{4}")
+
+all_cohorts_participant %>% 
+  filter(`Participant External ID` %in% P4C_15_samples)
+
+# 15 rows -> all clinical data present
+```
+
+#### Updating CDE numbers
+
+```{r}
+all_cohorts_participant %>% 
+  filter(`Study Code` == "HTP" & Sex == "Male")
+```
+
+```{r}
+all_cohorts_condition %>% 
+  filter(`Study Code` == "DSC" & str_detect(`Condition or Measure Source Text`, "alopecia"))
+```
+
+##### check for uniqueness of Global IDs, then lowercase all
+
+```{r}
+all_cohorts_participant %>% 
+  pull(`Participant Global ID`) %>%
+  #tolower() %>% 
+  n_distinct()
+
+all_cohorts_participant %>% 
+  filter(str_detect(tolower(`Participant Global ID`), tolower("VVECSZ13")))
+```
+
+```{r}
+all_cohorts_participant %>% 
+  mutate(`Participant Global ID` = tolower(`Participant Global ID`)) %>% 
+  write_csv(here::here("output", "all_cohorts_participant_2023-06-08.csv"))
+
+```
+
+#### Add Global IDs to HTP omics metadata
+
+```{r}
+htp_omics_metadata <- read_csv("C:/Users/pierrettelo/Documents/INCLUDE/Biospecimen-FileManifests-pre-v3/Biospecimen-FileManifests-pre-v3/HTP/updated-kf-omics.csv")
+```
+
+
+```{r}
+htp_global_ids <- read_csv(here::here("output", "global-descriptors-htp_2023-06-20.csv")) %>% 
+  filter(fhir_resource_type == "Specimen") %>% 
+  select(descriptor, global_id) %>% 
+  arrange(descriptor)
+```
+
+
+```{r}
+htp_omics_metadata %>% 
+  left_join(htp_global_ids, by = c("sample_id" = "descriptor")) %>% 
+  relocate(global_id, .after = sample_id) %>% 
+  arrange(sample_id) %>% 
+  write_csv(here::here("output", "htp_omics_metadata_with_global_ids_2023-06-20.csv"))
+```
+

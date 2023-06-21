@@ -414,6 +414,15 @@ dsc_conditions_final <- dsc_conditions_subset %>%
 Final table:
 Create empty/all same value columns
 Select columns in order of DCA template
+CHECK that these 6 pts who have ds_specific_diagnosis = [blank] were given Down syndrome MONDO code
+(for v3, I will add these "manually")
+- 11296
+- 12481
+- 12633
+- 12657
+- 12721
+- 13056
+
 ```{r}
 dsc_condition <- dsc_conditions_final %>%
   left_join(dsc_ihq %>% 
