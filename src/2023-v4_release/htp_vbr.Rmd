@@ -1,0 +1,195 @@
+---
+title: "HTP VBR v4"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+```
+
+
+Get VBR files
+
+```{r}
+vbr_biospecimen <- read_delim(synGet("syn52138216")$path, "\t")
+vbr_participants <- read_delim(synGet("syn52138217")$path, "\t")
+
+# X01 WBC RNA samples (incomplete catalog for now)
+# has Collection ID instead of Collection Sample ID; no Container ID
+vbr_wbcrna <- read_delim(synGet("syn52138215")$path, "\t") %>% 
+  mutate(ParticipantExternalID = 
+           str_extract(ParticipantExternalID, "HTP[:digit:]{4}"),
+         .after = StudyCode)
+
+vbr_all_specimens <- bind_rows(vbr_biospecimen, vbr_wbcrna)
+
+
+```
+
+
+Compare biospecimen vs clinical datasets
+
+```{r}
+
+setdiff(vbr_all_specimens$ParticipantExternalID, vbr_participants$ParticipantExternalID)
+
+# 31 Participants do not have biospecimen data??
+setdiff(vbr_participants$ParticipantExternalID, vbr_all_specimens$ParticipantExternalID)
+```
+
+
+Compare Participants to v3 harmonized data
+235 new participants in VBR data
+
+```{r}
+htp_participants <- all_cohorts_participant %>% filter(`Study Code` == "HTP")
+
+# all participants in v3 data are in vbr_participants
+setdiff(htp_participants$`Participant External ID`, vbr_participants$ParticipantExternalID)
+
+# 233 participants in vbr_participant not in v3 data
+setdiff(vbr_participants$ParticipantExternalID, htp_participants$`Participant External ID`)
+
+```
+
+Instead - list of dewrangle Global IDs
+```{r}
+htp_dewrangle <- read_csv(here::here("data", "global-descriptors-htp_2023-07-24.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+```
+
+```{r}
+# 9433 samples in vbr data not in dewrangle
+length(setdiff(vbr_all_specimens$SampleID, htp_dewrangle$descriptor))
+
+# 5388 samples in dewrangle not in vbr data -> due to naming changes?
+length(setdiff(htp_dewrangle$descriptor, vbr_all_specimens$SampleID))
+```
+
+## Get Unique Sample Types for enums
+
+```{r}
+vbr_all_specimens %>% pull(SampleType) %>% unique
+```
+
+
+```{r}
+vbr_all_specimens %>% pull(ParentSampleType) %>% unique
+```
+
+
+```{r}
+vbr_all_specimens %>% pull(CollectionSampleType) %>% unique
+```
+
+```{r}
+unique(c(vbr_all_specimens$SampleType, 
+         vbr_all_specimens$ParentSampleType,
+         vbr_all_specimens$CollectionSampleType)) %>% sort()
+```
+
+
+## Get sample ID suffixes for dewrangle mapping
+
+```{r}
+dewrangle_suffixes <- htp_dewrangle %>% 
+  pull(descriptor) %>% 
+  str_replace("HTP.{5,7}_", "") %>% 
+  unique()
+```
+
+```{r}
+vbr_suffixes <- vbr_all_specimens %>% 
+  pull(SampleID) %>% 
+  str_replace("HTP.{5,7}_", "") %>% 
+  unique()
+```
+
+#TODO - finish
+
+```{r}
+htp_dewrangle %>% 
+  mutate(ParticipantExternalID = str_extract(descriptor, "HTP[:digit:]{4}")) %>% 
+  select(global_id, ParticipantExternalID, descriptor_old = descriptor) %>% 
+  mutate(suffix_new = case_when(
+  str_detect(descriptor_old, "WBCs") ~ "WhiteBloodCells",
+  str_detect(descriptor_old, "Red Blood Cells") ~ "RedBloodCells",
+  str_detect(descriptor_old, "Monocytes") ~ "Monocytes",
+  str_detect(descriptor_old, "Whole blood") ~ "WholeBlood",#what about EDTA?
+  str_detect(descriptor_old, "DNA_sal"),
+  str_detect(descriptor_old, "Plasma") ~ "Plasma",
+  str_detect(descriptor_old, "DNA_paxgene"),
+  str_detect(descriptor_old, "RNA_paxgene"),
+  str_detect(descriptor_old, "Saliva"),
+  str_detect(descriptor_old, "WBCs_CSB"),
+  str_detect(descriptor_old, "RNA"),
+  str_detect(descriptor_old, "CD8+ T Cells"),
+  str_detect(descriptor_old, "Tregs"),
+  str_detect(descriptor_old, "Granulocytes"),
+  str_detect(descriptor_old, "CD4+ Tconv Cells"),
+  str_detect(descriptor_old, "NK Cells"),
+  str_detect(descriptor_old, "PBMCs"),
+  str_detect(descriptor_old, "DNA"),
+  str_detect(descriptor_old, "Buffy coat") ~ "BuffyCoat",
+  str_detect(descriptor_old, "B Cells")
+
+    ))
+```
+
+```{r}
+datapasta::vector_paste_vertical(vbr_suffixes)
+
+c(RedBloodCells,
+  WholeBloodEDTA,
+  Plasma,
+  PAXgeneWholeBloodDNATube,
+  PAXgeneWholeBloodDNA,
+  PAXgeneWholeBloodRNATube,
+  TongueSwab,
+  WholeBlood,
+  Saliva,
+  PAXgeneWholeBloodRNA,
+  NKcells,
+  Granulocytes,
+  BuffyCoat,
+  CD4+Tconvcells,
+  PeripheralBloodMononuclearCells,
+  Salivette,
+  Monocytes,
+  BloodSmearSlide,
+  CD8+Tcells,
+  WhiteBloodCells,
+  Tregs,
+  SkinTape,
+  ATACseq,
+  WhiteBloodCell_RNA)
+```
+
+##### HARMONIZATION
+
+```{r}
+vbr_all_specimens %>% 
+  select(studyCode = StudyCode,
+         participantExternalId = ParticipantExternalID,
+         sampleExternalId = SampleID,
+         sampleType = SampleType,
+         ageAtBiospecimenCollection = AgeInDaysAtBiospecimenCollection,
+         parentSampleExternalId = ParentSampleID,
+         parentSampleType = ParentSampleType,
+         collectionExternalId = CollectionSampleID,
+         collectionSampleType = CollectionSampleType,
+         containerExternalId = ContainerID,
+         volume = Volume,
+         volumeUnit = VolumeUnit,
+         laboratoryProcedure = LaboratoryProcedure,
+         biospecimenStorage = BiospecimenStorage,
+         sampleAvailability = SampleAvailability,
+         containerAvailability = AliquotAvailability)
+```
+

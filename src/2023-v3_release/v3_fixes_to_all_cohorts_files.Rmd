@@ -261,3 +261,15 @@ htp_omics_metadata %>%
   write_csv(here::here("output", "htp_omics_metadata_with_global_ids_2023-06-20.csv"))
 ```
 
+
+
+#### Annotate harmonized data on Synapse to add to Dataset
+
+```{r}
+synSetAnnotations("syn51514604", annotations = list("file_type" = "harmonized_biospecimen"))
+```
+
+```{r}
+synMove("syn51344919", "syn51345920")
+```
+
