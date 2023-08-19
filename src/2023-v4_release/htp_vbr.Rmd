@@ -14,167 +14,163 @@ synLogin()
 ```
 
 
+## CHECKS
+
 Get VBR files
 
 ```{r}
-vbr_biospecimen <- read_delim(synGet("syn52138216")$path, "\t")
+vbr_biospecimens <- read_delim(synGet("syn52138216")$path, "\t")
 vbr_participants <- read_delim(synGet("syn52138217")$path, "\t")
 
-# X01 WBC RNA samples (incomplete catalog for now)
-# has Collection ID instead of Collection Sample ID; no Container ID
-vbr_wbcrna <- read_delim(synGet("syn52138215")$path, "\t") %>% 
-  mutate(ParticipantExternalID = 
-           str_extract(ParticipantExternalID, "HTP[:digit:]{4}"),
-         .after = StudyCode)
+all_cohorts_participant <- read_csv(synGet("syn51216460")$path)
+htp_participants_v3 <- all_cohorts_participant %>% filter(`Study Code` == "HTP")
 
-vbr_all_specimens <- bind_rows(vbr_biospecimen, vbr_wbcrna)
-
+portal_dump <- read_delim(synGet("syn52290446")$path, "\t")
 
 ```
 
+Get list of dewrangle Global IDs
+```{r}
+htp_dewrangle_specimens <- read_csv(here::here("data", "global-descriptors-htp_2023-07-24.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+```
+
+check for dupes
+```{r}
+vbr_biospecimens %>% count(ContainerID) %>% arrange(desc(n))
+#many duplicate rows in Biospecimen
+
+vbr_participants %>% count(ParticipantExternalID) %>% arrange(desc(n))
+# no dupes in Participant
+```
+
+
+```{r}
+# 13442 samples in vbr data not in dewrangle -> due to naming changes?
+length(setdiff(vbr_biospecimens$SampleID, htp_dewrangle$descriptor))
+
+# 5384 samples in dewrangle not in vbr data -> due to naming changes?
+length(setdiff(htp_dewrangle$descriptor, vbr_biospecimens$SampleID))
+```
 
 Compare biospecimen vs clinical datasets
 
 ```{r}
+# 5 Biospecimens don't have Participant data - ???
+# "HTP0429" "HTP0586" "HTP0988" "HTP0679" "HTP0691"
+# all except 0988 are in v3
+setdiff(vbr_biospecimens$ParticipantExternalID, vbr_participants$ParticipantExternalID)
 
-setdiff(vbr_all_specimens$ParticipantExternalID, vbr_participants$ParticipantExternalID)
-
-# 31 Participants do not have biospecimen data??
-setdiff(vbr_participants$ParticipantExternalID, vbr_all_specimens$ParticipantExternalID)
+# 65 Participants don't have biospecimens
+setdiff(vbr_participants$ParticipantExternalID, vbr_biospecimens$ParticipantExternalID)
 ```
 
 
 Compare Participants to v3 harmonized data
-235 new participants in VBR data
 
 ```{r}
-htp_participants <- all_cohorts_participant %>% filter(`Study Code` == "HTP")
 
-# all participants in v3 data are in vbr_participants
-setdiff(htp_participants$`Participant External ID`, vbr_participants$ParticipantExternalID)
+# 4 participants in v3 data are in not in vbr_participants = Matt is looking for these
+# "HTP0691" "HTP0679" "HTP0429" "HTP0586"
+setdiff(htp_participants_v3$`Participant External ID`, vbr_participants$ParticipantExternalID)
 
-# 233 participants in vbr_participant not in v3 data
-setdiff(vbr_participants$ParticipantExternalID, htp_participants$`Participant External ID`)
+# 267 participants in vbr_participant not in v3 data
+setdiff(vbr_participants$ParticipantExternalID, htp_participants_v3$`Participant External ID`)
 
 ```
 
-Instead - list of dewrangle Global IDs
+## GLOBAL IDs
+
+Mapping of old -> new global IDs and compare to previous dewrangle output
+
+checks:
 ```{r}
-htp_dewrangle <- read_csv(here::here("data", "global-descriptors-htp_2023-07-24.csv")) %>% 
-  filter(fhir_resource_type == "Specimen")
+htp_dewrangle_specimens # 6660
+
+n_distinct(vbr_biospecimens$Participant_global_id) #677 - includes `NA`
+n_distinct(portal_dump$`Participant ID`) #676
+setdiff(vbr_biospecimens$Participant_global_id, portal_dump$`Participant ID`)
+
+n_distinct(portal_dump$`Sample ID`) #5405
+n_distinct(vbr_biospecimens$Sample_global_id) #5346
+
+globals_in_portal <- unique(portal_dump$`Sample ID`)
+global_in_vbr <- unique(vbr_biospecimens$Sample_global_id)
+
+portal_not_in_vbr <- setdiff(globals_in_portal, global_in_vbr) #60 in portal, not in VBR
+setdiff(global_in_vbr, globals_in_portal) #NA
+
+portal_dump %>% filter(`Sample ID` %in% portal_not_in_vbr) %>% arrange(`Sample Type`)
+# 57 WBCs, 1 DNA, 1 CD4+, 1 CD8+
+# 57 WBCs were deleted bc they don't have container IDs ("created" Parent Samples)
+# the 3 others are known mismatches of Container IDs -> deleted from vbr
+
 ```
 
+Samples that need new Participant Global IDs
 ```{r}
-# 9433 samples in vbr data not in dewrangle
-length(setdiff(vbr_all_specimens$SampleID, htp_dewrangle$descriptor))
+biospecimen_need_new_participant_id <- vbr_biospecimens %>% 
+  filter(str_detect(HTP_comment, "Participant")) %>% 
+  pull(ParticipantExternalID) %>% unique()
+#"HTP0712" "HTP0711" "HTP0019" "HTP0714" "HTP0050" "HTP0054" "HTP0604"
 
-# 5388 samples in dewrangle not in vbr data -> due to naming changes?
-length(setdiff(htp_dewrangle$descriptor, vbr_all_specimens$SampleID))
-```
-
-## Get Unique Sample Types for enums
-
-```{r}
-vbr_all_specimens %>% pull(SampleType) %>% unique
-```
+setdiff(biospecimen_need_new_participant_id, participants_needing_global_ids)
+# the above are IN ADDITION to participants_needing_global_ids
 
 
-```{r}
-vbr_all_specimens %>% pull(ParentSampleType) %>% unique
 ```
 
 
+Samples that need NEW sample Global IDs
 ```{r}
-vbr_all_specimens %>% pull(CollectionSampleType) %>% unique
+# first find rows that are duplicate except for HTP_comment
+# These are Containers that have 2 different comments
+# looks like they're all "NEW samples" and "Updated"
+# filter out dupes this time -> ask Matt to fix next time - only need 1 flag
+vbr_biospecimens %>% 
+  select(SampleID, SampleID_old, Sample_global_id, ContainerID, HTP_comment) %>% 
+  distinct() %>% 
+  group_by(ContainerID) %>% 
+  mutate(n = n_distinct(HTP_comment)) %>% 
+  filter(n>1) %>% 
+  arrange(SampleID, ContainerID) %>% #359 groups
+#  group_by(HTP_comment) %>%
+#  count() # NEW samples has 359 https://stackoverflow.com/a/65110534
+
+
+
+
+
+vbr_biospecimens %>% 
+  filter(str_detect(HTP_comment, "NEW samples|needs new")) %>% 
+  pull(SampleID) %>% length()
+#16429
 ```
 
+Samples that need UPDATED descriptors
 ```{r}
-unique(c(vbr_all_specimens$SampleType, 
-         vbr_all_specimens$ParentSampleType,
-         vbr_all_specimens$CollectionSampleType)) %>% sort()
+vbr_biospecimens %>% 
+  filter(!is.na(Sample_global_id)) %>% 
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  distinct() %>% #5434
+  mutate(needs_update = SampleID != SampleID_old) %>% 
+  filter(is.na(needs_update))
+
 ```
 
 
-## Get sample ID suffixes for dewrangle mapping
-
-```{r}
-dewrangle_suffixes <- htp_dewrangle %>% 
-  pull(descriptor) %>% 
-  str_replace("HTP.{5,7}_", "") %>% 
-  unique()
-```
-
-```{r}
-vbr_suffixes <- vbr_all_specimens %>% 
-  pull(SampleID) %>% 
-  str_replace("HTP.{5,7}_", "") %>% 
-  unique()
-```
-
-#TODO - finish
-
-```{r}
-htp_dewrangle %>% 
-  mutate(ParticipantExternalID = str_extract(descriptor, "HTP[:digit:]{4}")) %>% 
-  select(global_id, ParticipantExternalID, descriptor_old = descriptor) %>% 
-  mutate(suffix_new = case_when(
-  str_detect(descriptor_old, "WBCs") ~ "WhiteBloodCells",
-  str_detect(descriptor_old, "Red Blood Cells") ~ "RedBloodCells",
-  str_detect(descriptor_old, "Monocytes") ~ "Monocytes",
-  str_detect(descriptor_old, "Whole blood") ~ "WholeBlood",#what about EDTA?
-  str_detect(descriptor_old, "DNA_sal"),
-  str_detect(descriptor_old, "Plasma") ~ "Plasma",
-  str_detect(descriptor_old, "DNA_paxgene"),
-  str_detect(descriptor_old, "RNA_paxgene"),
-  str_detect(descriptor_old, "Saliva"),
-  str_detect(descriptor_old, "WBCs_CSB"),
-  str_detect(descriptor_old, "RNA"),
-  str_detect(descriptor_old, "CD8+ T Cells"),
-  str_detect(descriptor_old, "Tregs"),
-  str_detect(descriptor_old, "Granulocytes"),
-  str_detect(descriptor_old, "CD4+ Tconv Cells"),
-  str_detect(descriptor_old, "NK Cells"),
-  str_detect(descriptor_old, "PBMCs"),
-  str_detect(descriptor_old, "DNA"),
-  str_detect(descriptor_old, "Buffy coat") ~ "BuffyCoat",
-  str_detect(descriptor_old, "B Cells")
-
-    ))
-```
-
-```{r}
-datapasta::vector_paste_vertical(vbr_suffixes)
-
-c(RedBloodCells,
-  WholeBloodEDTA,
-  Plasma,
-  PAXgeneWholeBloodDNATube,
-  PAXgeneWholeBloodDNA,
-  PAXgeneWholeBloodRNATube,
-  TongueSwab,
-  WholeBlood,
-  Saliva,
-  PAXgeneWholeBloodRNA,
-  NKcells,
-  Granulocytes,
-  BuffyCoat,
-  CD4+Tconvcells,
-  PeripheralBloodMononuclearCells,
-  Salivette,
-  Monocytes,
-  BloodSmearSlide,
-  CD8+Tcells,
-  WhiteBloodCells,
-  Tregs,
-  SkinTape,
-  ATACseq,
-  WhiteBloodCell_RNA)
-```
 
 ##### HARMONIZATION
 
+**TODO:** add Participant & Sample Global IDs
+
+Harmonize Biospecimen
+
+**TODO:** CLean up NULL vs N/A
+REMOVE DUPLICATE ROWS
+
 ```{r}
-vbr_all_specimens %>% 
+vbr_biospecimens %>% 
   select(studyCode = StudyCode,
          participantExternalId = ParticipantExternalID,
          sampleExternalId = SampleID,
@@ -182,7 +178,7 @@ vbr_all_specimens %>%
          ageAtBiospecimenCollection = AgeInDaysAtBiospecimenCollection,
          parentSampleExternalId = ParentSampleID,
          parentSampleType = ParentSampleType,
-         collectionExternalId = CollectionSampleID,
+         collectionExternalId = CollectionID,
          collectionSampleType = CollectionSampleType,
          containerExternalId = ContainerID,
          volume = Volume,
@@ -190,6 +186,176 @@ vbr_all_specimens %>%
          laboratoryProcedure = LaboratoryProcedure,
          biospecimenStorage = BiospecimenStorage,
          sampleAvailability = SampleAvailability,
-         containerAvailability = AliquotAvailability)
+         containerAvailability = containerAvailability) %>% 
+  mutate(participantGlobalId = "TBD",
+         sampleGlobalId = "TBD",
+         parentSampleGlobalId = "TBD",
+         collectionGlobalId = "TBD") %>% 
+  write_csv(here::here("output", "vbr_biospecimens_draft_2023-08-15.csv"))
+  
 ```
+
+
+
+## OLD WORK
+
+<!-- ## Get Unique Sample Types for enums -->
+
+<!-- ```{r} -->
+<!-- unique(c(vbr_biospecimens$SampleType,  -->
+<!--          vbr_biospecimens$ParentSampleType, -->
+<!--          vbr_biospecimens$CollectionSampleType)) %>% sort() -->
+<!-- ``` -->
+
+<!-- ## FIGURING OUT OLD VS NEW SAMPLE IDs -->
+
+<!-- Get sample ID suffixes from dewrangle -->
+
+<!-- ```{r} -->
+<!-- htp_dewrangle %>%  -->
+<!--   pull(descriptor) %>%  -->
+<!--   str_replace("HTP.{5,7}_", "") %>%  -->
+<!--   unique() -->
+<!-- ``` -->
+
+<!-- Get sample ID suffixes from VBR export -->
+
+<!-- ```{r} -->
+<!-- vbr_biospecimens %>%  -->
+<!--   pull(SampleID) %>%  -->
+<!--   str_replace("HTP.{5,7}_", "") %>%  -->
+<!--   unique() -->
+<!-- ``` -->
+
+<!-- Read in Matt's lists of missing/unmatched samples -->
+
+<!-- PART 1: 72 samples with --, 6 with NA or "Damaged BC"  -->
+<!-- ```{r} -->
+<!-- missing_containers <- read_delim(synGet("syn52293384")$path, "\t") %>%  -->
+<!--   left_join(htp_dewrangle %>% select(global_id, descriptor), -->
+<!--             by = c("Sample_global_id" = "global_id")) -->
+<!-- ``` -->
+
+<!-- look in aliquot.csv -->
+
+<!-- ```{r} -->
+<!-- aliquotcsv <- read_csv(synGet("syn52293019")$path) -->
+
+<!-- aliquotcsv %>% filter(`Sample ID` %in% missing_containers$descriptor) -->
+<!-- # these are all the Plasmas with NA or Damaged, so not helpful -->
+<!-- ``` -->
+
+<!-- compare v1 (htp_sample.csv) to v3 (FV_S71B1672_htp_samples_AND_COLLECTIONS_with_KF_global_ids_updated_2023-06-09.csv) -->
+
+<!-- ```{r} -->
+<!-- v1_sample_manifest <- read_csv(synGet("syn52293022")$path) #5494 -->
+<!-- v3_sample_manifest <- read_csv(synGet("syn51514604")$path) #6430 -->
+<!-- ``` -->
+<!-- 161 samples in v1 aliquots.csv were not in v3  -->
+<!-- -> Eric said 891 rows were dropped from aliquots.csv because of this -->
+<!-- Per Matt, these should probably be deleted anyway, but he will check -->
+<!-- ```{r} -->
+<!-- #setdiff(v3_sample_manifest$`Sample External ID`, v1_sample_manifest$`Sample ID`) #1097 -->
+
+<!-- v1_v3_setdiff <- setdiff(v1_sample_manifest$`Sample ID`, v3_sample_manifest$`Sample External ID`) #161 -->
+
+<!-- htp_sample_manifest_robert %>%  -->
+<!--   filter(`Sample ID` %in% v1_v3_setdiff) %>%  -->
+<!--   write_csv(here::here("output", "v1_v3_setdiff.csv")) # sent to Matt -->
+<!-- ``` -->
+
+
+<!-- Look in v3 sample manifest -->
+<!-- ```{r} -->
+<!-- v3_sample_manifest %>% filter(`Sample External ID` %in% missing_containers$descriptor) -->
+
+<!-- ``` -->
+
+<!-- Look in portal dump -->
+<!-- ```{r} -->
+<!-- portal_dump <- read_tsv(synGet("syn52290446")$path) -->
+
+<!-- missing_containers_that_have_files <- portal_dump %>%  -->
+<!--   filter(`External Sample ID` %in% missing_containers$descriptor) %>%  -->
+<!--   filter(Files != "--") %>%  -->
+<!--   pull(`External Sample ID`) %>% unique() %>% sort() -->
+
+<!-- #21 samples that don't have containers but do have files -->
+<!-- ``` -->
+
+<!-- Look in the HTP sample manifest file (Robert/Adam) -->
+<!-- ```{r} -->
+<!-- htp_sample_manifest_robert <- read_csv(synGet("syn48250502")$path) -->
+
+<!-- htp_sample_manifest_robert %>%  -->
+<!--   filter(`Sample ID` %in% missing_containers$descriptor) %>%  -->
+<!--   pull(`Sample ID`) %>% unique() %>% sort() -->
+<!-- # only the 6 Plasmas match Sample ID in Robert's sheet, and they don't have container IDs here either -->
+
+<!-- # now look for those samples in Parent Sample column -->
+<!-- htp_sample_manifest_robert %>%  -->
+<!--   filter(`Parent Sample ID` %in% missing_containers$descriptor) %>% -->
+<!--   pull(`Parent Sample ID`) %>% unique() -->
+<!-- # 57, correct number -->
+<!-- # these only appear as Parents and not Samples --> "created"? -->
+
+<!-- ``` -->
+<!-- From VBR Agenda 2023-05-30 -->
+
+<!-- MISSING SAMPLES -->
+<!-- 15 HTP samples with RNAseq in Data Service but not in portal  -->
+<!-- These might have been in a small pilot - are there FASTQ files? Also public on GEO * check with Christina -->
+<!-- HTP0084A2_RNA_paxgene -->
+<!-- HTP0085B2_RNA_paxgene -->
+<!-- HTP0204A_RNA_paxgene -->
+<!-- HTP0206B_RNA_paxgene -->
+<!-- HTP0288B_RNA_paxgene -->
+<!-- HTP0302B_RNA_paxgene -->
+<!-- HTP0310A_RNA_paxgene -->
+<!-- HTP0322B_RNA_paxgene -->
+<!-- HTP0326A_RNA_paxgene -->
+<!-- HTP0328A_RNA_paxgene -->
+<!-- HTP0332A_RNA_paxgene -->
+<!-- HTP0338B_RNA_paxgene -->
+<!-- HTP0348A_RNA_paxgene -->
+<!-- HTP0351A_RNA_paxgene -->
+<!-- HTP0442A2_RNA_paxgene -->
+
+
+<!-- ```{r} -->
+<!-- missing_15_samples <- c("HTP0084A2_RNA_paxgene", "HTP0085B2_RNA_paxgene", "HTP0204A_RNA_paxgene", "HTP0206B_RNA_paxgene", "HTP0288B_RNA_paxgene", "HTP0302B_RNA_paxgene", "HTP0310A_RNA_paxgene", "HTP0322B_RNA_paxgene", "HTP0326A_RNA_paxgene", "HTP0328A_RNA_paxgene", "HTP0332A_RNA_paxgene", "HTP0338B_RNA_paxgene", "HTP0348A_RNA_paxgene", "HTP0351A_RNA_paxgene", "HTP0442A2_RNA_paxgene") -->
+
+<!-- setdiff(missing_containers_that_have_files, missing_15_samples) -->
+<!-- ``` -->
+
+<!-- PART 2: MISMATCHED CONTAINER IDs -->
+
+<!-- ```{r} -->
+<!-- unmatched_containers <- read_delim(synGet("syn52293382")$path, "\t") %>%  -->
+<!--   left_join(htp_dewrangle %>% select(global_id, descriptor), -->
+<!--             by = c("Sample_global_id" = "global_id")) -->
+<!-- ``` -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

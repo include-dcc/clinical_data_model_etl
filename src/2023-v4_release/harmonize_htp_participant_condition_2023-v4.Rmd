@@ -1,0 +1,224 @@
+---
+title: "Harmonize HTP clinical data to LinkML v2 model - Aug 2023"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+```
+
+
+## Updated clinical data to accompany VBR export
+This includes data from all 700 v3 participants
+
+
+```{r}
+vbr_participants <- read_delim(synGet("syn52138217")$path, "\t")
+```
+
+**Checks:**
+
+Start by checking in Excel
+- Participant ID - do any look wrong
+- Family ID - do any look wrong; are any NA
+- Family Type, Sex, Race, Ethnicity, First Event, Vital Status - 
+  are they spelled the same as before, any new values
+- Father, Mother ID - usually just one; flag & ask if multiple
+- Sibling ID - flag if there are a lot
+- Other Family ID - should be filled in?
+- Family Relationship - check if "Other" makes sense with Family Type
+- DS Status - should not be Unknown
+- Age at registration - should not be 0
+- Age at last vital status - should not be 0, should be >= age at reg
+- Generally do missing values (NULL/NA/Unknown/etc.) match previous versions
+
+
+```{r}
+# 0 participants don't have minimal data AND don't have biospecimens AND not in v3
+vbr_participants %>% 
+  filter(DownSyndromeStatus == "Unknown") %>%
+  filter(ParticipantExternalID %in% htp_participants_v3$`Participant External ID`)
+  filter(ParticipantExternalID %in% vbr_biospecimens$ParticipantExternalID)
+
+# 0 don't have Family ID AND don't have samples AND not in v3
+vbr_participants %>% 
+  filter(is.na(FamilyID)) %>% 
+  filter(ParticipantExternalID %in% htp_participants_v3$`Participant External ID`)
+  filter(ParticipantExternalID %in% vbr_biospecimens$ParticipantExternalID)
+
+# check ages
+vbr_participants %>%
+  filter(AgeAtLastVitalStatusInDays < AgeAtFirstPatientEngagement)
+```
+
+
+Race, ethnicity, family type, family relationship
+
+```{r}
+htp_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "HTP",
+         model_slot %in% c("race", "ethnicity", "familyType")) %>% 
+  select(model_slot, model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+vbr_participants_harmonized <- vbr_participants %>% 
+  left_join(htp_etl_plan %>% filter(model_slot == "race") %>% 
+              select(model_enum_label, original_value), 
+            by = c("Race" = "original_value")) %>% 
+  rename(race = model_enum_label) %>%
+  relocate(race, .after = Race) %>% 
+  left_join(htp_etl_plan %>% filter(model_slot == "ethnicity") %>% 
+              select(model_enum_label, original_value), 
+            by = c("Ethnicity" = "original_value")) %>% 
+  rename(ethnicity = model_enum_label) %>% 
+  relocate(ethnicity, .after = Ethnicity) %>% 
+  left_join(htp_etl_plan %>% filter(model_slot == "familyType") %>% 
+              select(model_enum_label, original_value), 
+            by = c("FamilyType" = "original_value")) %>% 
+  rename(familyType = model_enum_label) %>% 
+  relocate(familyType, .after = FamilyType) %>%
+  mutate(familyRelationship = case_when(
+    FamilyRelationship == "Sister" ~ "Sibling",
+    FamilyRelationship == "Brother" ~ "Sibling",
+    FamilyRelationship == "Other" & familyType == "Control-only" ~ "Unrelated control",
+    FamilyRelationship == "Other" & familyType != "Control-only" ~ "Other relative",
+    TRUE ~ FamilyRelationship),
+    .after = FamilyRelationship)
+
+```
+
+
+Check for non-D21 Families that have "Other" relatives,
+Make sure Other Relative ID is filled in for them
+```{r}
+vbr_participants_harmonized %>% 
+  filter(familyRelationship == "Other relative")
+```
+
+## Add Global IDs
+
+Check which participants need global IDs
+```{r}
+htp_dewrangle_patients <- read_csv(here::here("data", "global-descriptors-htp_2023-07-24.csv")) %>% 
+  filter(fhir_resource_type == "Patient")
+
+#participants that don't have global IDs
+participants_needing_global_ids <- vbr_participants_harmonized %>% 
+  left_join(htp_dewrangle_patients %>% select(global_id, descriptor),
+            by = c("ParticipantExternalID" = "descriptor")) %>% 
+  select(global_id, everything()) %>% 
+  filter(is.na(global_id)) %>% 
+  pull(ParticipantExternalID)
+
+#compare to v3 data
+participants_not_in_v3 <- setdiff(vbr_participants$ParticipantExternalID, htp_participants_v3$`Participant External ID`)
+
+setdiff(participants_needing_global_ids, participants_not_in_v3)
+setdiff(participants_not_in_v3, participants_needing_global_ids)
+```
+
+Get global IDs
+```{r}
+vbr_participants_dewrangle <- vbr_participants_harmonized %>% 
+  left_join(htp_dewrangle_patients %>% select(global_id, descriptor),
+            by = c("ParticipantExternalID" = "descriptor")) %>% 
+  select(global_id, everything()) %>% 
+  filter(is.na(global_id)) %>% 
+  select(descriptor = ParticipantExternalID) %>%
+  distinct(descriptor) %>% 
+  mutate(fhir_resource_type = "patient")
+
+write_csv(vbr_participants_dewrangle, 
+          here::here("output", "vbr_participants_dewrangle.csv"))
+
+# submit manifest at dewrangle.com; save result to "output"
+
+htp_updated_global_ids <- read_csv(here::here("output", "global-descriptors-HTP.csv"))
+
+vbr_participants_harmonized %>% 
+  left_join(htp_global_ids %>% select(descriptor, global_id),
+            by = c("ParticipantExternalID" = "descriptor")) 
+
+#%>% select(ParticipantExternalID, global_id) %>% filter(is.na(global_id))
+
+```
+
+
+copy schema labels from https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=908117705
+datapasta -> paste vertical vector -> toggle vector quotes
+
+```{r}
+vbr_participants_harmonized <- vbr_participants_harmonized %>% 
+  select(participantExternalId = ParticipantExternalID,
+         familyId = FamilyID,
+         familyType,
+         fatherId = FatherID,
+         motherId = MotherID,
+         siblingId = SiblingIDs,
+         otherFamilyMemberId = OtherFamilyMemberID,
+         familyRelationship = FamilyRelationship,
+         sex = Sex,
+         race,
+         ethnicity,
+         downSyndromeStatus = DownSyndromeStatus,
+         ageAtFirstPatientEngagement = AgeAtFirstPatientEngagement,
+         firstPatientEngagementEvent = FirstPatientEngagementEvent,
+         outcomesVitalStatus = OutcomesVitalStatus,
+         ageAtLastVitalStatus = AgeAtLastVitalStatusInDays) %>% 
+  mutate(studyCode = "HTP",
+         participantGlobalId = "TBD") %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
+
+```
+
+## CONDITIONS
+
+Get v3 conditions
+```{r}
+all_cohorts_condition <- read_csv(synGet("syn51216464")$path)
+htp_conditions_v3 <- all_cohorts_condition %>% filter(`Study Code` == "HTP")
+
+htp_conditions_v3 %>% 
+  filter(!`Participant External ID` %in% vbr_participants_harmonized$ParticipantExternalID) %>% 
+  pull(`Participant External ID`) %>% unique()
+# missing 4 participants "HTP0429" "HTP0586" "HTP0679" "HTP0691"
+
+```
+
+Add DS MONDO code for new T21 participants and join to v3 conditions
+
+```{r}
+vbr_participants_harmonized %>% 
+  filter(!ParticipantExternalID %in% htp_conditions_v3$`Participant External ID`) %>% 
+  filter(DownSyndromeStatus == "T21") %>% 
+  select(participantExternalId = ParticipantExternalID) %>% 
+  mutate(studyCode = "HTP",
+         eventId = NA,
+         eventType = NA,
+         conditionMeasureSourceText = "Down syndrome",
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = "Observed",
+         conditionStatus = "History Of", 
+         conditionDataSource = "Clinical",
+         hpoLabel = NA,
+         hpoCode = NA,
+         mondoLabel = "Down syndrome",
+         mondoCode = "MONDO:0008608",
+         maxoLabel = NA,
+         maxoCode = NA,
+         otherLabel = NA,
+         otherCode = NA,
+         measureValue = NA,
+         measureUnit = NA) %>%
+  select(all_of(condition_schemalabels)) %>% 
+  setNames(condition_displaynames) %>% 
+  bind_rows(htp_conditions_v3)
+```
+
