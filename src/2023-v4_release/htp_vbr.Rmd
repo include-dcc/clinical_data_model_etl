@@ -38,7 +38,10 @@ htp_dewrangle_specimens <- read_csv(here::here("data", "global-descriptors-htp_2
 check for dupes
 ```{r}
 vbr_biospecimens %>% count(ContainerID) %>% arrange(desc(n))
-#many duplicate rows in Biospecimen
+# many duplicate rows in Biospecimen
+# mostly because of two HTP_comments per container
+
+vbr_biospecimens %>% select(-HTP_comment) %>% distinct() %>% count(ContainerID) %>% arrange(desc(n))
 
 vbr_participants %>% count(ParticipantExternalID) %>% arrange(desc(n))
 # no dupes in Participant
@@ -46,8 +49,8 @@ vbr_participants %>% count(ParticipantExternalID) %>% arrange(desc(n))
 
 
 ```{r}
-# 13442 samples in vbr data not in dewrangle -> due to naming changes?
-length(setdiff(vbr_biospecimens$SampleID, htp_dewrangle$descriptor))
+# 13286 samples in vbr data not in dewrangle -> due to naming changes?
+length(setdiff(unique(vbr_biospecimens$SampleID), htp_dewrangle$descriptor))
 
 # 5384 samples in dewrangle not in vbr data -> due to naming changes?
 length(setdiff(htp_dewrangle$descriptor, vbr_biospecimens$SampleID))
@@ -89,15 +92,15 @@ htp_dewrangle_specimens # 6660
 
 n_distinct(vbr_biospecimens$Participant_global_id) #677 - includes `NA`
 n_distinct(portal_dump$`Participant ID`) #676
-setdiff(vbr_biospecimens$Participant_global_id, portal_dump$`Participant ID`)
+setdiff(vbr_biospecimens$Participant_global_id, portal_dump$`Participant ID`) #NA
 
 n_distinct(portal_dump$`Sample ID`) #5405
-n_distinct(vbr_biospecimens$Sample_global_id) #5346
+n_distinct(vbr_biospecimens$Sample_global_id, na.rm = TRUE) #5335
 
 globals_in_portal <- unique(portal_dump$`Sample ID`)
 global_in_vbr <- unique(vbr_biospecimens$Sample_global_id)
 
-portal_not_in_vbr <- setdiff(globals_in_portal, global_in_vbr) #60 in portal, not in VBR
+portal_not_in_vbr <- setdiff(globals_in_portal, global_in_vbr) #70 in portal, not in VBR
 setdiff(global_in_vbr, globals_in_portal) #NA
 
 portal_dump %>% filter(`Sample ID` %in% portal_not_in_vbr) %>% arrange(`Sample Type`)
@@ -105,59 +108,119 @@ portal_dump %>% filter(`Sample ID` %in% portal_not_in_vbr) %>% arrange(`Sample T
 # 57 WBCs were deleted bc they don't have container IDs ("created" Parent Samples)
 # the 3 others are known mismatches of Container IDs -> deleted from vbr
 
-```
-
-Samples that need new Participant Global IDs
-```{r}
-biospecimen_need_new_participant_id <- vbr_biospecimens %>% 
-  filter(str_detect(HTP_comment, "Participant")) %>% 
-  pull(ParticipantExternalID) %>% unique()
-#"HTP0712" "HTP0711" "HTP0019" "HTP0714" "HTP0050" "HTP0054" "HTP0604"
-
-setdiff(biospecimen_need_new_participant_id, participants_needing_global_ids)
-# the above are IN ADDITION to participants_needing_global_ids
-
-
-```
-
-
-Samples that need NEW sample Global IDs
-```{r}
-# first find rows that are duplicate except for HTP_comment
-# These are Containers that have 2 different comments
-# looks like they're all "NEW samples" and "Updated"
-# filter out dupes this time -> ask Matt to fix next time - only need 1 flag
 vbr_biospecimens %>% 
-  select(SampleID, SampleID_old, Sample_global_id, ContainerID, HTP_comment) %>% 
-  distinct() %>% 
-  group_by(ContainerID) %>% 
-  mutate(n = n_distinct(HTP_comment)) %>% 
-  filter(n>1) %>% 
-  arrange(SampleID, ContainerID) %>% #359 groups
-#  group_by(HTP_comment) %>%
-#  count() # NEW samples has 359 https://stackoverflow.com/a/65110534
+  select(ParticipantExternalID, Participant_global_id, SampleID, SampleID_old, Sample_global_id, HTP_comment) %>% 
+  mutate(sample_match = SampleID == SampleID_old) %>% 
+  filter(sample_match == FALSE)
+# some sampleID != sampleID_old but comment = "exact match"
+# assume those are samples that Matt was able to fuzzy-match
 
-
-
-
-
-vbr_biospecimens %>% 
-  filter(str_detect(HTP_comment, "NEW samples|needs new")) %>% 
-  pull(SampleID) %>% length()
-#16429
-```
-
-Samples that need UPDATED descriptors
-```{r}
-vbr_biospecimens %>% 
+# Only 1 sample with duplicate global IDs after Matt removed WBC Lysates
+# HTP0604A4_Plasma
+vbr_biospecimens %>%
+  select(Sample_global_id, SampleID, SampleID_old) %>%
+  distinct() %>% #get rid of multiple Container rows
   filter(!is.na(Sample_global_id)) %>% 
-  select(SampleID, SampleID_old, Sample_global_id) %>% 
-  distinct() %>% #5434
-  mutate(needs_update = SampleID != SampleID_old) %>% 
-  filter(is.na(needs_update))
+  group_by(Sample_global_id) %>% 
+  add_count() %>%
+  filter(n > 1) %>% 
+  arrange(Sample_global_id)
+
+#%>% write_csv(here::here("output", "duplicate_global_ids.csv"))
+
+# HTP0604A4_Plasma - remove dupes later
+vbr_biospecimens %>% 
+  filter(SampleID == "HTP0604A4_Plasma") %>%
+  select(SampleID, SampleID_old, Sample_global_id, ContainerID, ParticipantExternalID) %>% 
+  arrange(ContainerID) %>% view()
+
+# no duplication of Container IDs if you get rid of the comments and old ID cols
+vbr_biospecimens %>%
+  select(ParticipantExternalID:SampleAvailability) %>% 
+  distinct() %>%
+  filter(SampleID == "HTP0604A4_Plasma")
+  filter(!is.na(ContainerID)) %>% 
+  get_dupes(ContainerID)
+
+# all the SampleIDs without Container IDs are unique
+vbr_biospecimens %>%
+  select(ParticipantExternalID:SampleAvailability) %>% 
+  distinct() %>% 
+  filter(is.na(ContainerID)) %>% 
+  get_dupes(SampleID)
+```
+
+
+Ignore HTP_comment for now
+Propagate Global IDs to Containers from Samples that already have Global & Participant IDs
+```{r}
+vbr_globals_updated <- vbr_biospecimens %>% 
+  select(ParticipantExternalID, Participant_global_id, SampleID, SampleID_old, Sample_global_id, ContainerID) %>% 
+  distinct() %>% 
+  arrange(SampleID) %>% 
+  group_by(ParticipantExternalID) %>% 
+  mutate(participant_global_UPDATED = max(Participant_global_id, na.rm = TRUE), .after = Participant_global_id) %>% 
+  ungroup() %>% 
+  group_by(SampleID) %>% 
+  mutate(sample_global_UPDATED = max(Sample_global_id, na.rm = TRUE), .after = Sample_global_id) %>%
+  ungroup() %>% 
+  select(-Participant_global_id, -Sample_global_id, -SampleID_old) %>% 
+  distinct()
+
+n_distinct(vbr_globals_updated$sample_global_UPDATED)
+# 5335 (matches main vbr set)  
+```
+
+Pull in the specimen metadata columns from vbr_biospecimens
+```{r}
+vbr_biospecimens_updated <- vbr_globals_updated %>% 
+  filter(!is.na(sample_global_UPDATED)) %>%  
+  select(ContainerID, sample_global_UPDATED, participant_global_UPDATED) %>%
+  left_join(vbr_biospecimens %>% select(ParticipantExternalID:SampleAvailability) %>% distinct(), 
+            by = "ContainerID", na_matches = "never")
+```
+
+Generate table of UPDATED descriptors to upload to dewrangle
+```{r}
+vbr_dewrangle_update_input <- htp_dewrangle_specimens %>% 
+  left_join(vbr_biospecimens_updated %>% select(sample_global_UPDATED, SampleID) %>% distinct(),
+            by = c("global_id" = "sample_global_UPDATED")) %>% 
+  filter(descriptor != SampleID) %>% 
+  rename(descriptor_OLD = descriptor) %>% 
+  select(descriptor = SampleID, fhir_resource_type, global_id)
+
+# 4132 Global IDs need updated descriptors
 
 ```
 
+Generate set of samples that need NEW global IDs to upload to dewrangle
+```{r}
+vbr_dewrangle_new_specimens_input <- vbr_globals_updated %>% 
+  filter(is.na(sample_global_UPDATED)) %>% 
+  select(descriptor = SampleID) %>% 
+  mutate(fhir_resource_type = "Specimen") %>% 
+  distinct() 
+
+#%>% length() #9227
+```
+
+
+Make sure none of the "NEW" samples are in the "UPDATED" set & vice-versa
+```{r}
+length(setdiff(vbr_dewrangle_update_input$descriptor, vbr_dewrangle_new_specimens$descriptor))
+length(setdiff(vbr_dewrangle_new_specimens$descriptor, vbr_dewrangle_update_input$descriptor))
+
+```
+
+```{r}
+vbr_dewrangle_update_input %>% write_csv(here::here("output", "vbr_dewrangle_update_input.csv"))
+
+```
+
+============START HERE
+**TODO:** Get global IDs, add to final vbr_biospecimens version
+
+**TODO:** Final changelog with v3 vs v4 External & Global IDs
 
 
 ##### HARMONIZATION
@@ -192,7 +255,7 @@ vbr_biospecimens %>%
          parentSampleGlobalId = "TBD",
          collectionGlobalId = "TBD") %>% 
   write_csv(here::here("output", "vbr_biospecimens_draft_2023-08-15.csv"))
-  
+
 ```
 
 

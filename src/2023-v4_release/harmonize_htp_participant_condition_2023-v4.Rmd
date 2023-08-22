@@ -108,7 +108,7 @@ Check which participants need global IDs
 htp_dewrangle_patients <- read_csv(here::here("data", "global-descriptors-htp_2023-07-24.csv")) %>% 
   filter(fhir_resource_type == "Patient")
 
-#participants that don't have global IDs
+#participants that don't have global IDs yet
 participants_needing_global_ids <- vbr_participants_harmonized %>% 
   left_join(htp_dewrangle_patients %>% select(global_id, descriptor),
             by = c("ParticipantExternalID" = "descriptor")) %>% 
@@ -116,15 +116,47 @@ participants_needing_global_ids <- vbr_participants_harmonized %>%
   filter(is.na(global_id)) %>% 
   pull(ParticipantExternalID)
 
-#compare to v3 data
-participants_not_in_v3 <- setdiff(vbr_participants$ParticipantExternalID, htp_participants_v3$`Participant External ID`)
+#Samples that need new Participant Global IDs
+biospecimen_need_new_participant_id <- vbr_biospecimens %>% 
+  filter(str_detect(HTP_comment, "Participant")) %>% 
+  pull(ParticipantExternalID) %>% unique()
+#"HTP0712" "HTP0711" "HTP0019" "HTP0714" "HTP0050" "HTP0054" "HTP0604"
 
-setdiff(participants_needing_global_ids, participants_not_in_v3)
-setdiff(participants_not_in_v3, participants_needing_global_ids)
+setdiff(biospecimen_need_new_participant_id, htp_dewrangle_patients$descriptor)
+# these are already in dewrangle! does it just need an update?
+# maybe don't use the comments - just check which samples already have Participant Global ID
+# and use those to populate the other container rows from those samples
+
+htp_dewrangle_patients %>% filter(descriptor %in% biospecimen_need_new_participant_id)
+vbr_biospecimens %>% filter(ParticipantExternalID %in% biospecimen_need_new_participant_id) %>% 
+  select(ParticipantExternalID, Participant_global_id, SampleID, SampleID_old, Sample_global_id, HTP_comment) %>% 
+  distinct() %>% 
+  arrange(ParticipantExternalID) %>% view()
+# I think some of the NEW samples just need to be associated with Participant Global ID, not new global id
+# The ones where comment = needs new global ID might not actually?
+# also in here are samples where SampleID != SampleID_old but comment = "exact match"
+# assume those are samples that Matt was able to fuzzy-match
+
+# STOPPED HERE=============
+
+
+setdiff(biospecimen_need_new_participant_id, participants_needing_global_ids)
+# the above are IN ADDITION to participants_needing_global_ids
+
+all_participants_needing_new_globals <- unique(c(participants_needing_global_ids, biospecimen_need_new_participant_id))
+#274
+
+# compare to existing dewrangle
+setdiff(htp_dewrangle_patients$descriptor, all_participants_needing_new_globals)
+setdiff(all_participants_needing_new_globals, htp_dewrangle_patients$descriptor)
 ```
+
 
 Get global IDs
 ```{r}
+tibble(descriptor = all_participants_needing_new_globals,
+       fhir_resource_type = "patient")
+
 vbr_participants_dewrangle <- vbr_participants_harmonized %>% 
   left_join(htp_dewrangle_patients %>% select(global_id, descriptor),
             by = c("ParticipantExternalID" = "descriptor")) %>% 
