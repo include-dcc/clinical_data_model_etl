@@ -212,12 +212,34 @@ length(setdiff(vbr_dewrangle_new_specimens$descriptor, vbr_dewrangle_update_inpu
 
 ```
 
+Check for dupes in all the files:
+```{r}
+vbr_dewrangle_new_specimens_input %>% get_dupes(descriptor)
+vbr_dewrangle_update_input %>% get_dupes(global_id)
+vbr_biospecimens_updated %>% get_dupes(ContainerID)
+```
+
+
+Compare to set of global IDs in portal dump:
+```{r}
+length(setdiff(vbr_dewrangle_new_specimens_input$descriptor, 
+               portal_dump$`External Sample ID`)) #9227
+
+length(setdiff(vbr_dewrangle_update_input$global_id, 
+               portal_dump$`Sample ID`)) #0
+```
+
+
+
 ```{r}
 vbr_dewrangle_update_input %>% write_csv(here::here("output", "vbr_dewrangle_update_input.csv"))
 
 ```
 
 ============START HERE
+
+8/22 Matt to send new biospecimen file without duplicate rows -> redo above checks and regenerate dewrangle input files
+
 **TODO:** Get global IDs, add to final vbr_biospecimens version
 
 **TODO:** Final changelog with v3 vs v4 External & Global IDs
