@@ -38,18 +38,15 @@ htp_dewrangle_specimens <- read_csv(here::here("data", "global-descriptors-htp_2
 check for dupes
 ```{r}
 vbr_biospecimens %>% count(ContainerID) %>% arrange(desc(n))
-# many duplicate rows in Biospecimen
-# mostly because of two HTP_comments per container
+# no dupes except for NA
 
 vbr_biospecimens %>% select(-HTP_comment) %>% distinct() %>% count(ContainerID) %>% arrange(desc(n))
 
-vbr_participants %>% count(ParticipantExternalID) %>% arrange(desc(n))
-# no dupes in Participant
 ```
 
 
 ```{r}
-# 13286 samples in vbr data not in dewrangle -> due to naming changes?
+# 13285 samples in vbr data not in dewrangle -> due to naming changes?
 length(setdiff(unique(vbr_biospecimens$SampleID), htp_dewrangle$descriptor))
 
 # 5384 samples in dewrangle not in vbr data -> due to naming changes?
@@ -59,28 +56,13 @@ length(setdiff(htp_dewrangle$descriptor, vbr_biospecimens$SampleID))
 Compare biospecimen vs clinical datasets
 
 ```{r}
-# 5 Biospecimens don't have Participant data - ???
-# "HTP0429" "HTP0586" "HTP0988" "HTP0679" "HTP0691"
-# all except 0988 are in v3
+# all Biospecimens have Participant data
 setdiff(vbr_biospecimens$ParticipantExternalID, vbr_participants$ParticipantExternalID)
 
-# 65 Participants don't have biospecimens
+# 153 Participants don't have biospecimens
 setdiff(vbr_participants$ParticipantExternalID, vbr_biospecimens$ParticipantExternalID)
 ```
 
-
-Compare Participants to v3 harmonized data
-
-```{r}
-
-# 4 participants in v3 data are in not in vbr_participants = Matt is looking for these
-# "HTP0691" "HTP0679" "HTP0429" "HTP0586"
-setdiff(htp_participants_v3$`Participant External ID`, vbr_participants$ParticipantExternalID)
-
-# 267 participants in vbr_participant not in v3 data
-setdiff(vbr_participants$ParticipantExternalID, htp_participants_v3$`Participant External ID`)
-
-```
 
 ## GLOBAL IDs
 
@@ -107,47 +89,52 @@ portal_dump %>% filter(`Sample ID` %in% portal_not_in_vbr) %>% arrange(`Sample T
 # 57 WBCs, 1 DNA, 1 CD4+, 1 CD8+
 # 57 WBCs were deleted bc they don't have container IDs ("created" Parent Samples)
 # the 3 others are known mismatches of Container IDs -> deleted from vbr
+# so this is all ok
 
+# make sure all sample IDs only have one sampleID_old
 vbr_biospecimens %>% 
-  select(ParticipantExternalID, Participant_global_id, SampleID, SampleID_old, Sample_global_id, HTP_comment) %>% 
-  mutate(sample_match = SampleID == SampleID_old) %>% 
-  filter(sample_match == FALSE)
-# some sampleID != sampleID_old but comment = "exact match"
-# assume those are samples that Matt was able to fuzzy-match
-
-# Only 1 sample with duplicate global IDs after Matt removed WBC Lysates
-# HTP0604A4_Plasma
-vbr_biospecimens %>%
-  select(Sample_global_id, SampleID, SampleID_old) %>%
-  distinct() %>% #get rid of multiple Container rows
-  filter(!is.na(Sample_global_id)) %>% 
-  group_by(Sample_global_id) %>% 
-  add_count() %>%
-  filter(n > 1) %>% 
-  arrange(Sample_global_id)
-
-#%>% write_csv(here::here("output", "duplicate_global_ids.csv"))
-
-# HTP0604A4_Plasma - remove dupes later
-vbr_biospecimens %>% 
-  filter(SampleID == "HTP0604A4_Plasma") %>%
-  select(SampleID, SampleID_old, Sample_global_id, ContainerID, ParticipantExternalID) %>% 
-  arrange(ContainerID) %>% view()
-
-# no duplication of Container IDs if you get rid of the comments and old ID cols
-vbr_biospecimens %>%
-  select(ParticipantExternalID:SampleAvailability) %>% 
-  distinct() %>%
-  filter(SampleID == "HTP0604A4_Plasma")
-  filter(!is.na(ContainerID)) %>% 
-  get_dupes(ContainerID)
-
-# all the SampleIDs without Container IDs are unique
-vbr_biospecimens %>%
-  select(ParticipantExternalID:SampleAvailability) %>% 
+  select(SampleID, SampleID_old) %>%
+  filter(!is.na(SampleID_old)) %>% 
   distinct() %>% 
-  filter(is.na(ContainerID)) %>% 
-  get_dupes(SampleID)
+  group_by(SampleID) %>% #or SampleID_old
+  add_count() %>% 
+  filter(n>1) %>% 
+  arrange(SampleID)     #or SampleID_old
+
+# get sample IDs without globals
+# all of these samples also don't have SampleID_old
+sample_without_globals <- vbr_biospecimens %>%
+  select(SampleID, Sample_global_id, SampleID_old) %>%
+  distinct() %>%
+  filter(is.na(Sample_global_id)) %>% 
+  pull(SampleID)
+
+# check if they have matches in other rows
+vbr_biospecimens %>% 
+  filter(!is.na(Sample_global_id)) %>% 
+  filter(SampleID %in% sample_without_globals) #0
+
+# check if they have matches in dewrangle
+sample_without_globals_but_in_dewrangle <- htp_dewrangle_specimens %>% 
+  filter(descriptor %in% sample_without_globals) %>% 
+  pull(descriptor) #27
+
+# all have comment "NEW samples since portal v3 WITHOUT global IDs"
+vbr_biospecimens %>% 
+  filter(SampleID %in% sample_without_globals_but_in_dewrangle) %>% 
+  pull(HTP_comment) %>% unique()
+
+# none of the 27 (or any of the samples without globals) are in portal dump
+portal_dump %>% 
+  #filter(`Sample ID` %in% sample_without_globals_but_in_dewrangle)
+  filter(`Sample ID` %in% sample_without_globals)
+
+# check if old vs new sample types match for the 27
+vbr_biospecimens %>% 
+    filter(SampleID %in% sample_without_globals_but_in_dewrangle) %>% 
+    select(SampleID, SampleID_old, SampleType, SampleType_old)
+
+
 ```
 
 

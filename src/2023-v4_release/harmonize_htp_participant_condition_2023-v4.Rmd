@@ -16,10 +16,13 @@ synLogin()
 
 ## Updated clinical data to accompany VBR export
 This includes data from all 700 v3 participants
-
+Replace "NULL" and "Unknown" with `NA`
+(TODO: Find out why there is NULL and Unknown in family member ID cols)
 
 ```{r}
-vbr_participants <- read_delim(synGet("syn52138217")$path, "\t")
+vbr_participants <- read_delim(synGet("syn52138217")$path, "\t") %>% 
+  mutate(across(where(is.character), ~na_if(., "NULL"))) %>% 
+  mutate(across(where(is.character), ~na_if(., "Unknown")))
 ```
 
 **Checks:**
@@ -28,33 +31,45 @@ Start by checking in Excel
 - Participant ID - do any look wrong
 - Family ID - do any look wrong; are any NA
 - Family Type, Sex, Race, Ethnicity, First Event, Vital Status - 
-  are they spelled the same as before, any new values
+are they spelled the same as before, any new values
 - Father, Mother ID - usually just one; flag & ask if multiple
 - Sibling ID - flag if there are a lot
 - Other Family ID - should be filled in?
-- Family Relationship - check if "Other" makes sense with Family Type
+- Family Relationship - check if "Other" makes sense with Family Type;
+all "Proband" should be T21
 - DS Status - should not be Unknown
 - Age at registration - should not be 0
 - Age at last vital status - should not be 0, should be >= age at reg
 - Generally do missing values (NULL/NA/Unknown/etc.) match previous versions
 
+ISSUES:
+- Relative IDs = difference between Unknown and NULL?
+- Stop changing enums! e.g. family relationships, "D21-Only" vs "D21 Only"
 
 ```{r}
+vbr_participants %>% janitor::get_dupes(ParticipantExternalID)
+
 # 0 participants don't have minimal data AND don't have biospecimens AND not in v3
 vbr_participants %>% 
   filter(DownSyndromeStatus == "Unknown") %>%
   filter(ParticipantExternalID %in% htp_participants_v3$`Participant External ID`)
-  filter(ParticipantExternalID %in% vbr_biospecimens$ParticipantExternalID)
+filter(ParticipantExternalID %in% vbr_biospecimens$ParticipantExternalID)
 
 # 0 don't have Family ID AND don't have samples AND not in v3
 vbr_participants %>% 
   filter(is.na(FamilyID)) %>% 
   filter(ParticipantExternalID %in% htp_participants_v3$`Participant External ID`)
-  filter(ParticipantExternalID %in% vbr_biospecimens$ParticipantExternalID)
+filter(ParticipantExternalID %in% vbr_biospecimens$ParticipantExternalID)
 
 # check ages
 vbr_participants %>%
   filter(AgeAtLastVitalStatusInDays < AgeAtFirstPatientEngagement)
+
+# all participants in v3 data are in vbr_participants
+setdiff(htp_participants_v3$`Participant External ID`, vbr_participants$ParticipantExternalID)
+
+# 345 participants in vbr_participant not in v3 data
+setdiff(vbr_participants$ParticipantExternalID, htp_participants_v3$`Participant External ID`)
 ```
 
 
@@ -96,9 +111,23 @@ vbr_participants_harmonized <- vbr_participants %>%
 
 Check for non-D21 Families that have "Other" relatives,
 Make sure Other Relative ID is filled in for them
+
+Several Probands listed as Siblings or Other Relatives
+e.g. F0876 - Proband HTP1123 is shown under "Other Relative"
+F0061
+Family Member IDs are listed for every member of family, not just Proband - is this ok?
 ```{r}
 vbr_participants_harmonized %>% 
   filter(familyRelationship == "Other relative")
+
+# other Probands listed as relatives?
+
+probands <- vbr_participants_harmonized %>% 
+  filter(familyRelationship == "Proband") %>% 
+  pull(ParticipantExternalID)
+
+vbr_participants_harmonized %>% 
+  filter(OtherFamilyMemberID %in% probands)
 ```
 
 ## Add Global IDs
@@ -108,86 +137,79 @@ Check which participants need global IDs
 htp_dewrangle_patients <- read_csv(here::here("data", "global-descriptors-htp_2023-07-24.csv")) %>% 
   filter(fhir_resource_type == "Patient")
 
-#participants that don't have global IDs yet
-participants_needing_global_ids <- vbr_participants_harmonized %>% 
+# check that the Global IDs in Matt's file are correct
+vbr_participants %>% 
+  select(ParticipantExternalID, Participant_global_id) %>% 
   left_join(htp_dewrangle_patients %>% select(global_id, descriptor),
             by = c("ParticipantExternalID" = "descriptor")) %>% 
-  select(global_id, everything()) %>% 
-  filter(is.na(global_id)) %>% 
-  pull(ParticipantExternalID)
+  mutate(global_match = global_id == Participant_global_id) %>% 
+  filter(global_match == FALSE)
 
-#Samples that need new Participant Global IDs
-biospecimen_need_new_participant_id <- vbr_biospecimens %>% 
-  filter(str_detect(HTP_comment, "Participant")) %>% 
-  pull(ParticipantExternalID) %>% unique()
-#"HTP0712" "HTP0711" "HTP0019" "HTP0714" "HTP0050" "HTP0054" "HTP0604"
+# check overlap with existing dewrangle set
+setdiff(vbr_participants$Participant_global_id, htp_dewrangle_patients$global_id) #NA
+setdiff(htp_dewrangle_patients$global_id, vbr_participants$Participant_global_id) #24
 
-setdiff(biospecimen_need_new_participant_id, htp_dewrangle_patients$descriptor)
-# these are already in dewrangle! does it just need an update?
-# maybe don't use the comments - just check which samples already have Participant Global ID
-# and use those to populate the other container rows from those samples
+# external IDs for 24 -> send to Matt
+dewrangle_24_not_in_vbr_participants <- htp_dewrangle_patients %>% 
+  filter(global_id %in% setdiff(htp_dewrangle_patients$global_id, 
+                                vbr_participants$Participant_global_id)) %>% 
+  pull(descriptor)
 
-htp_dewrangle_patients %>% filter(descriptor %in% biospecimen_need_new_participant_id)
-vbr_biospecimens %>% filter(ParticipantExternalID %in% biospecimen_need_new_participant_id) %>% 
-  select(ParticipantExternalID, Participant_global_id, SampleID, SampleID_old, Sample_global_id, HTP_comment) %>% 
-  distinct() %>% 
-  arrange(ParticipantExternalID) %>% view()
-# I think some of the NEW samples just need to be associated with Participant Global ID, not new global id
-# The ones where comment = needs new global ID might not actually?
-# also in here are samples where SampleID != SampleID_old but comment = "exact match"
-# assume those are samples that Matt was able to fuzzy-match
+# are these patients in v3 portal? - Yes, all 24
+htp_participants_v3 %>% 
+  filter(`Participant External ID` %in% dewrangle_24_not_in_vbr_participants)
 
-# STOPPED HERE=============
+# Some of the 24 do have biospecimens
+setdiff(dewrangle_24_not_in_vbr_participants, vbr_biospecimens$ParticipantExternalID)
 
-
-setdiff(biospecimen_need_new_participant_id, participants_needing_global_ids)
-# the above are IN ADDITION to participants_needing_global_ids
-
-all_participants_needing_new_globals <- unique(c(participants_needing_global_ids, biospecimen_need_new_participant_id))
-#274
-
-# compare to existing dewrangle
-setdiff(htp_dewrangle_patients$descriptor, all_participants_needing_new_globals)
-setdiff(all_participants_needing_new_globals, htp_dewrangle_patients$descriptor)
 ```
 
 
-Get global IDs
+Update vbr_participants with existing global IDs
 ```{r}
-tibble(descriptor = all_participants_needing_new_globals,
-       fhir_resource_type = "patient")
-
-vbr_participants_dewrangle <- vbr_participants_harmonized %>% 
+vbr_participants_harmonized_globalUpdated <- vbr_participants_harmonized %>% 
   left_join(htp_dewrangle_patients %>% select(global_id, descriptor),
-            by = c("ParticipantExternalID" = "descriptor")) %>% 
-  select(global_id, everything()) %>% 
-  filter(is.na(global_id)) %>% 
-  select(descriptor = ParticipantExternalID) %>%
-  distinct(descriptor) %>% 
-  mutate(fhir_resource_type = "patient")
+            by = c("ParticipantExternalID" = "descriptor")) %>%
+  rename(Participant_global_id_updated = global_id)
 
-write_csv(vbr_participants_dewrangle, 
-          here::here("output", "vbr_participants_dewrangle.csv"))
+# check 355 needing globals against v3
+vbr_participants_harmonized_globalUpdated %>% 
+  filter(is.na(Participant_global_id_updated)) %>% 
+  filter(ParticipantExternalID %in% htp_participants_v3$`Participant External ID`) #0
+```
+
+get new Global IDs from dewrangle
+No changelog for participants because not changing any global IDs, just creating
+
+```{r}
+vbr_participant_dewrangle_input <- vbr_participants_harmonized_globalUpdated %>% 
+  filter(is.na(Participant_global_id_updated)) %>% 
+  transmute(descriptor = ParticipantExternalID, fhir_resource_type = "Patient")
+
+write_csv(vbr_participant_dewrangle_input,
+          here::here("output", "vbr_participant_dewrangle_input.csv"))
 
 # submit manifest at dewrangle.com; save result to "output"
 
-htp_updated_global_ids <- read_csv(here::here("output", "global-descriptors-HTP.csv"))
+htp_dewrangle_patients_UPDATED <- read_csv(here::here(
+  "output", "global-descriptors-HTP_2023-09-07.csv")) %>% 
+  filter(fhir_resource_type == "Patient")
 
-vbr_participants_harmonized %>% 
-  left_join(htp_global_ids %>% select(descriptor, global_id),
-            by = c("ParticipantExternalID" = "descriptor")) 
-
-#%>% select(ParticipantExternalID, global_id) %>% filter(is.na(global_id))
+vbr_participants_harmonized_globalUpdated <- vbr_participants_harmonized_globalUpdated %>% 
+  left_join(htp_dewrangle_patients_UPDATED %>% select(global_id, descriptor),
+            by = c("ParticipantExternalID" = "descriptor")) %>% 
+  rename(Participant_global_id_updated_intermediate = Participant_global_id_updated) %>% 
+  rename(Participant_global_id_final = global_id)
 
 ```
-
 
 copy schema labels from https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=908117705
 datapasta -> paste vertical vector -> toggle vector quotes
 
 ```{r}
-vbr_participants_harmonized <- vbr_participants_harmonized %>% 
-  select(participantExternalId = ParticipantExternalID,
+vbr_participants_harmonized_final <- vbr_participants_harmonized_globalUpdated %>% 
+  select(participantGlobalId = Participant_global_id_final,
+         participantExternalId = ParticipantExternalID,
          familyId = FamilyID,
          familyType,
          fatherId = FatherID,
@@ -200,13 +222,15 @@ vbr_participants_harmonized <- vbr_participants_harmonized %>%
          ethnicity,
          downSyndromeStatus = DownSyndromeStatus,
          ageAtFirstPatientEngagement = AgeAtFirstPatientEngagement,
-         firstPatientEngagementEvent = FirstPatientEngagementEvent,
          outcomesVitalStatus = OutcomesVitalStatus,
          ageAtLastVitalStatus = AgeAtLastVitalStatusInDays) %>% 
   mutate(studyCode = "HTP",
-         participantGlobalId = "TBD") %>% 
+         firstPatientEngagementEvent = "Enrollment") %>% 
   select(all_of(participant_schemalabels)) %>% 
   setNames(participant_displaynames)
+
+write_csv(vbr_participants_harmonized_final,
+          here::here("output", "vbr_participants_harmonized_final.csv"))
 
 ```
 
@@ -217,40 +241,42 @@ Get v3 conditions
 all_cohorts_condition <- read_csv(synGet("syn51216464")$path)
 htp_conditions_v3 <- all_cohorts_condition %>% filter(`Study Code` == "HTP")
 
-htp_conditions_v3 %>% 
-  filter(!`Participant External ID` %in% vbr_participants_harmonized$ParticipantExternalID) %>% 
-  pull(`Participant External ID`) %>% unique()
-# missing 4 participants "HTP0429" "HTP0586" "HTP0679" "HTP0691"
+#355 participants don't have conditions yet - as expected
+setdiff(vbr_participants_harmonized$ParticipantExternalID, htp_conditions_v3$`Participant External ID`)
 
+#all participants in V3 Conditions are in vbr_participant
+setdiff(htp_conditions_v3$`Participant External ID`, vbr_participants_harmonized$ParticipantExternalID)
 ```
 
 Add DS MONDO code for new T21 participants and join to v3 conditions
 
 ```{r}
-vbr_participants_harmonized %>% 
-  filter(!ParticipantExternalID %in% htp_conditions_v3$`Participant External ID`) %>% 
-  filter(DownSyndromeStatus == "T21") %>% 
-  select(participantExternalId = ParticipantExternalID) %>% 
-  mutate(studyCode = "HTP",
-         eventId = NA,
-         eventType = NA,
-         conditionMeasureSourceText = "Down syndrome",
-         ageAtConditionMeasureObservation = NA,
-         conditionInterpretation = "Observed",
-         conditionStatus = "History Of", 
-         conditionDataSource = "Clinical",
-         hpoLabel = NA,
-         hpoCode = NA,
-         mondoLabel = "Down syndrome",
-         mondoCode = "MONDO:0008608",
-         maxoLabel = NA,
-         maxoCode = NA,
-         otherLabel = NA,
-         otherCode = NA,
-         measureValue = NA,
-         measureUnit = NA) %>%
-  select(all_of(condition_schemalabels)) %>% 
-  setNames(condition_displaynames) %>% 
+vbr_participants_conditions <- vbr_participants_harmonized_final %>% 
+  filter(!`Participant External ID` %in% htp_conditions_v3$`Participant External ID`) %>% 
+  filter(`Down Syndrome Status` == "T21") %>% 
+  select(`Study Code`,
+         `Participant External ID`) %>% 
+  mutate(`Event ID` = NA,
+         `Event Type` = NA,
+         `Condition or Measure Source Text` = "Down syndrome",
+         `Age At Condition or Measure Observation` = NA,
+         `Condition Interpretation` = "Observed",
+         `Condition Status` = "History Of", 
+         `Condition Data Source` = "Clinical",
+         `HPO Label` = NA,
+         `HPO Code` = NA,
+         `MONDO Label` = "Down syndrome",
+         `MONDO Code` = "MONDO:0008608",
+         `MAXO Label` = NA,
+         `MAXO Code` = NA,
+         `Other Label` = NA,
+         `Other Code` = NA,
+         `Measure Value` = NA,
+         `Measure Unit` = NA) %>%
+  select(all_of(condition_displaynames)) %>% 
   bind_rows(htp_conditions_v3)
+
+write_csv(vbr_participants_conditions,
+          here::here("output", "vbr_participants_conditions.csv"))
 ```
 

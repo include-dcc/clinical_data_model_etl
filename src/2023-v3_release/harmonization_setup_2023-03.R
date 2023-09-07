@@ -1,5 +1,6 @@
 library(tidyverse)
 library(synapser)
+library(readxl)
 library(googlesheets4)
 
 synLogin()
