@@ -1,5 +1,5 @@
 ---
-title: "Harmonize HTP clinical data to LinkML v2 model - Aug 2023"
+title: "Harmonize HTP VBR clinical data to LinkML v2 model - Aug 2023"
 ---
 
 ```{r setup, include=FALSE}
@@ -23,6 +23,9 @@ Replace "NULL" and "Unknown" with `NA`
 vbr_participants <- read_delim(synGet("syn52138217")$path, "\t") %>% 
   mutate(across(where(is.character), ~na_if(., "NULL"))) %>% 
   mutate(across(where(is.character), ~na_if(., "Unknown")))
+
+all_cohorts_participant <- read_csv(synGet("syn51216460")$path)
+htp_participants_v3 <- all_cohorts_participant %>% filter(`Study Code` == "HTP")
 ```
 
 **Checks:**

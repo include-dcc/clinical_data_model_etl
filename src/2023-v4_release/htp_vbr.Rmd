@@ -1,5 +1,5 @@
 ---
-title: "HTP VBR v4"
+title: "HTP VBR biospecimen manifest for v4"
 ---
 
 ```{r setup, include=FALSE}
@@ -49,7 +49,7 @@ vbr_biospecimens %>% select(-HTP_comment) %>% distinct() %>% count(ContainerID) 
 # 13285 samples in vbr data not in dewrangle -> due to naming changes?
 length(setdiff(unique(vbr_biospecimens$SampleID), htp_dewrangle$descriptor))
 
-# 5384 samples in dewrangle not in vbr data -> due to naming changes?
+# 5430 samples in dewrangle not in vbr data -> due to naming changes?
 length(setdiff(htp_dewrangle$descriptor, vbr_biospecimens$SampleID))
 ```
 
@@ -66,9 +66,11 @@ setdiff(vbr_participants$ParticipantExternalID, vbr_biospecimens$ParticipantExte
 
 ## GLOBAL IDs
 
+
 Mapping of old -> new global IDs and compare to previous dewrangle output
 
-checks:
+various checks:
+
 ```{r}
 htp_dewrangle_specimens # 6660
 
@@ -79,17 +81,18 @@ setdiff(vbr_biospecimens$Participant_global_id, portal_dump$`Participant ID`) #N
 n_distinct(portal_dump$`Sample ID`) #5405
 n_distinct(vbr_biospecimens$Sample_global_id, na.rm = TRUE) #5335
 
-globals_in_portal <- unique(portal_dump$`Sample ID`)
-global_in_vbr <- unique(vbr_biospecimens$Sample_global_id)
+unique_globals_in_portal <- unique(portal_dump$`Sample ID`)
+unique_globals_in_vbr <- unique(vbr_biospecimens$Sample_global_id) #includes NA
 
-portal_not_in_vbr <- setdiff(globals_in_portal, global_in_vbr) #70 in portal, not in VBR
+globals_in_portal_not_in_vbr <- setdiff(globals_in_portal, global_in_vbr) #70 in portal, not in VBR
 setdiff(global_in_vbr, globals_in_portal) #NA
 
-portal_dump %>% filter(`Sample ID` %in% portal_not_in_vbr) %>% arrange(`Sample Type`)
-# 57 WBCs, 1 DNA, 1 CD4+, 1 CD8+
+portal_dump %>% filter(`Sample ID` %in% portal_not_in_vbr) %>%
+  distinct() %>% arrange(`Sample Type`)
+# 72 WBCs, 1 DNA, 1 CD4+, 1 CD8+
 # 57 WBCs were deleted bc they don't have container IDs ("created" Parent Samples)
 # the 3 others are known mismatches of Container IDs -> deleted from vbr
-# so this is all ok
+# not sure about the new WBCs since last update??
 
 # make sure all sample IDs only have one sampleID_old
 vbr_biospecimens %>% 
@@ -101,7 +104,7 @@ vbr_biospecimens %>%
   filter(n>1) %>% 
   arrange(SampleID)     #or SampleID_old
 
-# get sample IDs without globals
+# get sample IDs without globals - 9226
 # all of these samples also don't have SampleID_old
 sample_without_globals <- vbr_biospecimens %>%
   select(SampleID, Sample_global_id, SampleID_old) %>%
@@ -137,84 +140,209 @@ vbr_biospecimens %>%
 
 ```
 
-
-Ignore HTP_comment for now
-Propagate Global IDs to Containers from Samples that already have Global & Participant IDs
+NOTE: in previous version (v8 on Synapse), found 46 samples with globals 
+for both Saliva and DNA_sal -> deleted from v9 so we can move on; will deal with later
 ```{r}
-vbr_globals_updated <- vbr_biospecimens %>% 
-  select(ParticipantExternalID, Participant_global_id, SampleID, SampleID_old, Sample_global_id, ContainerID) %>% 
+mismatched_46_sal_samples <- vbr_biospecimens_updated_participants %>% 
+  left_join(htp_dewrangle_specimens %>% select(descriptor, global_id),
+            by = c("SampleID" = "descriptor")) %>% 
+  rename(dewrangle_globals_by_SampleID = global_id) %>% 
+  filter(!is.na(dewrangle_globals_by_SampleID)) %>% 
+  select(SampleID, SampleID_old, Sample_global_id, dewrangle_globals_by_SampleID) %>% 
+  filter(Sample_global_id != dewrangle_globals_by_SampleID) %>% 
   distinct() %>% 
-  arrange(SampleID) %>% 
-  group_by(ParticipantExternalID) %>% 
-  mutate(participant_global_UPDATED = max(Participant_global_id, na.rm = TRUE), .after = Participant_global_id) %>% 
-  ungroup() %>% 
-  group_by(SampleID) %>% 
-  mutate(sample_global_UPDATED = max(Sample_global_id, na.rm = TRUE), .after = Sample_global_id) %>%
-  ungroup() %>% 
-  select(-Participant_global_id, -Sample_global_id, -SampleID_old) %>% 
-  distinct()
+  left_join(htp_dewrangle_specimens %>% select(descriptor, global_id),
+            by = c("dewrangle_globals_by_SampleID" = "global_id")) 
 
-n_distinct(vbr_globals_updated$sample_global_UPDATED)
-# 5335 (matches main vbr set)  
+#%>% 
+#  write_csv(here::here("output", "mismatched_46_sal_samples.csv"))
+
+#46 samples have mismatch
+# all DNA_sal
+
+# Both HTP0087B_Saliva and HTP0087B_DNA_sal are in dewrangle and have different global IDs
+# HTP0087B_Saliva	= bs-qrne3dqn9r
+# HTP0087B_DNA_sal	bs-dkex39ktr6
+
+#all in both cols are different
+setdiff(mismatched_46_sal_samples$dewrangle_globals_by_SampleID, 
+        mismatched_46_sal_samples$Sample_global_id) # & vice-versa
+
+#are the Sample_global_id in dewrangle?
+htp_dewrangle_specimens %>% 
+  filter(global_id %in% mismatched_46_sal_samples$Sample_global_id)
+  # the Sample_global_ids are associated with DNA_sal samples
+
+htp_dewrangle_specimens %>% 
+  filter(global_id %in% mismatched_46_sal_samples$dewrangle_globals_by_SampleID)
+  # the dewrangle_globals are also all in dewrangle, associated with Saliva samples
+
+# For reference, create table of dewrangle IDs
+mismatched_46_sal_in_dewrangle <- htp_dewrangle_specimens %>% 
+  filter(global_id %in% mismatched_46_sal_samples$dewrangle_globals_by_SampleID|
+           global_id %in% mismatched_46_sal_samples$Sample_global_id) %>% 
+  arrange(descriptor) %>% 
+  select(-fhir_resource_type)
+
+write_csv(mismatched_46_sal_in_dewrangle, here::here("output", "mismatched_46_sal_in_dewrangle.csv"))
+
+# check which are in portal
+setdiff(mismatched_46_sal_samples$Sample_global_id, portal_dump$`Sample ID`) #0
+setdiff(mismatched_46_sal_samples$dewrangle_globals_by_SampleID, portal_dump$`Sample ID`) #46??
+
+portal_dump %>% 
+  filter(`Sample ID` %in% mismatched_46_sal_samples$dewrangle_globals_by_SampleID)
+  # the Saliva samples in dewrangle are not in portal
+
+portal_dump %>% 
+  filter(`Sample ID` %in% mismatched_46_sal_samples$Sample_global_id)
+  # the DNA_sal samples from dewrangle are in the portal
+
+
 ```
 
-Pull in the specimen metadata columns from vbr_biospecimens
+
+Start by updating Participant Global IDs from dewrangle
 ```{r}
-vbr_biospecimens_updated <- vbr_globals_updated %>% 
-  filter(!is.na(sample_global_UPDATED)) %>%  
-  select(ContainerID, sample_global_UPDATED, participant_global_UPDATED) %>%
-  left_join(vbr_biospecimens %>% select(ParticipantExternalID:SampleAvailability) %>% distinct(), 
-            by = "ContainerID", na_matches = "never")
+vbr_biospecimens_updated_participants <- vbr_biospecimens %>% 
+  left_join(htp_dewrangle_patients_UPDATED %>% select(descriptor, global_id),
+            by = c("ParticipantExternalID" = "descriptor")) %>% 
+  rename(Participant_global_id_updated = global_id)
+  #filter(Participant_global_id != global_id)
 ```
 
-Generate table of UPDATED descriptors to upload to dewrangle
+
+Pull global IDs from dewrangle by SampleID and SampleID_old
 ```{r}
-vbr_dewrangle_update_input <- htp_dewrangle_specimens %>% 
-  left_join(vbr_biospecimens_updated %>% select(sample_global_UPDATED, SampleID) %>% distinct(),
-            by = c("global_id" = "sample_global_UPDATED")) %>% 
-  filter(descriptor != SampleID) %>% 
-  rename(descriptor_OLD = descriptor) %>% 
-  select(descriptor = SampleID, fhir_resource_type, global_id)
-
-# 4132 Global IDs need updated descriptors
-
-```
-
-Generate set of samples that need NEW global IDs to upload to dewrangle
-```{r}
-vbr_dewrangle_new_specimens_input <- vbr_globals_updated %>% 
-  filter(is.na(sample_global_UPDATED)) %>% 
-  select(descriptor = SampleID) %>% 
-  mutate(fhir_resource_type = "Specimen") %>% 
+compare_vbr_dewrangle_globals <- vbr_biospecimens_updated_participants %>% 
+  left_join(htp_dewrangle_specimens %>% select(descriptor, global_id),
+            by = c("SampleID" = "descriptor")) %>% 
+  rename(dewrangle_globals_by_SampleID = global_id) %>%
+  left_join(htp_dewrangle_specimens %>% select(descriptor, global_id),
+            by = c("SampleID_old" = "descriptor")) %>% 
+  rename(dewrangle_globals_by_SampleIDold = global_id) %>% 
+  select(SampleID, SampleID_old, Sample_global_id, 
+         dewrangle_globals_by_SampleID, dewrangle_globals_by_SampleIDold) %>% 
   distinct() 
 
-#%>% length() #9227
+# filter(Sample_global_id != dewrangle_globals_by_SampleID) 
+# filter(Sample_global_id != dewrangle_globals_by_SampleIDold)
+# filter(dewrangle_globals_by_SampleID != dewrangle_globals_by_SampleIDold)
 ```
 
+Checks:
 
-Make sure none of the "NEW" samples are in the "UPDATED" set & vice-versa
 ```{r}
-length(setdiff(vbr_dewrangle_update_input$descriptor, vbr_dewrangle_new_specimens$descriptor))
-length(setdiff(vbr_dewrangle_new_specimens$descriptor, vbr_dewrangle_update_input$descriptor))
+compare_vbr_dewrangle_globals %>% 
+  filter(!is.na(Sample_global_id)) %>% 
+  filter(is.na(dewrangle_globals_by_SampleID) & is.na(dewrangle_globals_by_SampleIDold)) %>% 
+  left_join(htp_dewrangle_specimens %>% select(descriptor, global_id),
+            by = c("Sample_global_id" = "global_id")) %>% 
+  select(SampleID, SampleID_old, Sample_global_id, 
+         dewrangle_descriptor_matching_Sample_global_id = descriptor) %>% 
+  write_csv(here::here("output", "has_global_but_no_old_id_178.csv"))
+
+# %>% pull(Sample_global_id) -> test
+#portal_dump %>% filter(`Sample ID` %in% test)
+
+# 178 samples have Sample_global_id but nothing pulled from dewrangle
+# all of those globals exist in dewrangle -> just that SampleID_old was NA
+# all are in Portal (under old sample ID)
+# send to matt for review
+
+compare_vbr_dewrangle_globals %>% 
+  filter(is.na(Sample_global_id) & 
+           (!is.na(dewrangle_globals_by_SampleID)|!is.na(dewrangle_globals_by_SampleIDold)))
+# 27 Plasma samples also have only dewrangle_globals_by_SampleID, no SampleID_old
+
+
+#do any samples have >1 row?
+compare_vbr_dewrangle_globals %>% 
+  filter(!is.na(SampleID_old)) %>% 
+  janitor::get_dupes(SampleID) #0
 
 ```
 
-Check for dupes in all the files:
+
+Assuming the above 178 are ok - get a single final Global ID
+
 ```{r}
-vbr_dewrangle_new_specimens_input %>% get_dupes(descriptor)
-vbr_dewrangle_update_input %>% get_dupes(global_id)
-vbr_biospecimens_updated %>% get_dupes(ContainerID)
+final_global_id_lookup <- compare_vbr_dewrangle_globals %>% 
+  mutate(global_id_final = case_when(
+    !is.na(Sample_global_id) ~ Sample_global_id,
+    is.na(Sample_global_id) & !is.na(dewrangle_globals_by_SampleID) ~ dewrangle_globals_by_SampleID,
+    is.na(Sample_global_id) & !is.na(dewrangle_globals_by_SampleIDold) ~ dewrangle_globals_by_SampleIDold
+  )) %>% 
+  filter(!is.na(global_id_final)) %>% 
+  select(SampleID, global_id_final) %>% 
+  distinct()
+
+
+
 ```
 
 
-Compare to set of global IDs in portal dump:
+Update vbr biospecimens
 ```{r}
-length(setdiff(vbr_dewrangle_new_specimens_input$descriptor, 
-               portal_dump$`External Sample ID`)) #9227
-
-length(setdiff(vbr_dewrangle_update_input$global_id, 
-               portal_dump$`Sample ID`)) #0
+vbr_biospecimens_updated_samples <- vbr_biospecimens_updated_participants %>% 
+  left_join(final_global_id_lookup, by = "SampleID")
 ```
+
+
+CHECK: Of the samples that don't have any global IDs - they also don't have SampleID_old
+-> are any of them erroneously missing SampleID_old? 
+Not sure how to search for this
+```{r}
+no_global_ids_yet <- compare_vbr_dewrangle_globals %>% 
+  mutate(global_id_final = case_when(
+    !is.na(Sample_global_id) ~ Sample_global_id,
+    is.na(Sample_global_id) & !is.na(dewrangle_globals_by_SampleID) ~ dewrangle_globals_by_SampleID,
+    is.na(Sample_global_id) & !is.na(dewrangle_globals_by_SampleIDold) ~ dewrangle_globals_by_SampleIDold
+  )) %>% 
+  filter(is.na(global_id_final)) %>% 
+  distinct() %>% 
+  pull(SampleID)
+
+# send filtered export to matt for review
+vbr_biospecimens_updated_samples %>% 
+  filter(SampleID %in% no_global_ids_yet) %>% 
+  arrange(SampleID) %>% 
+  write_csv(here::here("output", "for_review_no_global_ids_9199.csv"))
+
+```
+
+
+TODO: change of strategy - make sure all samples with files have Global IDs;
+create new Globals for the rest of them
+
+```{r}
+all_htp_datafiles <- read_xlsx(here::here("data", "all_htp_datafiles.xlsx"))
+```
+
+
+```{r}
+htp_datafiles %>% 
+  left_join(vbr_biospecimens_updated_samples %>% 
+              select(SampleID, SampleID_old, global_id_final) %>% 
+              distinct()) %>%
+  filter(is.na(global_id_final)) #4
+
+```
+
+Above 4 samples don't appear to be in vbr_biospecimens
+But they are in dewrangle:
+- HTP0297A6_DNA = bs-rbrtyrgb
+- HTP0298A_DNA_sal = bs-gexp663mcg
+- HTP0303A_DNA_sal = bs-ffckciec6f
+- HTP0306A_DNA_sal = bs-tti9rwdckw
+
+
+TODO: 
+make sure 2021 X01 WGS and RNAseq are in all_htp_datafiles
+get TCR/BCR samples from Matt/Angela as well
+
+
+
 
 
 
@@ -223,13 +351,6 @@ vbr_dewrangle_update_input %>% write_csv(here::here("output", "vbr_dewrangle_upd
 
 ```
 
-============START HERE
-
-8/22 Matt to send new biospecimen file without duplicate rows -> redo above checks and regenerate dewrangle input files
-
-**TODO:** Get global IDs, add to final vbr_biospecimens version
-
-**TODO:** Final changelog with v3 vs v4 External & Global IDs
 
 
 ##### HARMONIZATION
