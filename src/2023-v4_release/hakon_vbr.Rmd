@@ -1,0 +1,44 @@
+---
+title: "Hakonarson VBR v4"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+```
+
+
+## CHECKS
+
+Get VBR files
+
+```{r}
+hakon_vbr <- read_xlsx(synGet("syn52504777")$path)
+
+hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
+hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
+
+#delete the last few cols since they are for solid tumors
+hakon_clinical_all <- hakon_clin_dna %>% 
+  rbind(hakon_clin_rna) %>% 
+  select(-(`Days to First Event`:`Tumor resection extent`))
+
+```
+
+
+Confirm all samples have clinical data
+```{r}
+setdiff(hakon_vbr$`Participant External ID_orig`, hakon_clinical_all$`Participant ID`)
+setdiff(hakon_clinical_all$`Participant ID`, hakon_vbr$`Participant External ID_orig`)
+
+hakon_vbr %>% 
+  filter(`Participant External ID_orig` %in% hakon_clinical_all$`Participant ID`)
+```
+

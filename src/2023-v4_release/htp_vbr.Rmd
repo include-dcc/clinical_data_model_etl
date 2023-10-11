@@ -142,6 +142,11 @@ vbr_biospecimens %>%
 
 NOTE: in previous version (v8 on Synapse), found 46 samples with globals 
 for both Saliva and DNA_sal -> deleted from v9 so we can move on; will deal with later
+
+**UPDATE from Matt 9/28:**
+Confirmed with biobank team that these are Saliva and not DNA_sal
+I will ask Matt to delete DNA_sal from SampleID_old in biobank and associate correct
+Global ID, but not send me that export until next update
 ```{r}
 mismatched_46_sal_samples <- vbr_biospecimens_updated_participants %>% 
   left_join(htp_dewrangle_specimens %>% select(descriptor, global_id),
@@ -312,81 +317,690 @@ vbr_biospecimens_updated_samples %>%
 ```
 
 
-TODO: change of strategy - make sure all samples with files have Global IDs;
+**NEW STUFF**: change of strategy - make sure all samples with files have Global IDs;
 create new Globals for the rest of them
 
+Copy/paste Christina's datafile manifests into htp_v1_v3_datafiles.xlsx
 ```{r}
-all_htp_datafiles <- read_xlsx(here::here("data", "all_htp_datafiles.xlsx"))
+htp_v1_v3_datafiles <- read_xlsx(here::here("data", "htp_v1_v3_datafiles.xlsx"))
 ```
 
+Check v1/v3 datafile manifests from Christina
+Do any of these samples not have global ID?
 
 ```{r}
-htp_datafiles %>% 
+htp_v1_v3_datafiles %>% 
   left_join(vbr_biospecimens_updated_samples %>% 
               select(SampleID, SampleID_old, global_id_final) %>% 
               distinct()) %>%
-  filter(is.na(global_id_final)) #4
+  filter(is.na(global_id_final))
+# 1 sample, HTP0297A6_DNA has datafile but is not in vbr_biospecimens
+# but is in dewrangle and v3 (bs-rbrtyrgb)
+
+## Matt found that this should actually be HTP0297A_WhiteBloodCellsDNA 
+## -> update global ID descriptor
 
 ```
 
-Above 4 samples don't appear to be in vbr_biospecimens
-But they are in dewrangle:
-- HTP0297A6_DNA = bs-rbrtyrgb
-- HTP0298A_DNA_sal = bs-gexp663mcg
-- HTP0303A_DNA_sal = bs-ffckciec6f
-- HTP0306A_DNA_sal = bs-tti9rwdckw
+<!-- Above 4 samples don't appear to be in vbr_biospecimens -->
+<!-- But they are in dewrangle, and in portal dump with files associated: -->
+<!-- - HTP0297A6_DNA = bs-rbrtyrgb -->
+<!-- - HTP0298A_DNA_sal = bs-gexp663mcg -->
+<!-- - HTP0303A_DNA_sal = bs-ffckciec6f -->
+<!-- - HTP0306A_DNA_sal = bs-tti9rwdckw -->
+
+<!-- HTP0297A6_DNA = bs-rbrtyrgb is correct in portal and in KFDS, need to figure out -->
+<!-- why missing from Matt's VBR -->
+
+<!-- Cristina will correct the other 3 DNA_sal samples in her source, regenerate manifest, -->
+<!-- send back to me -->
 
 
-TODO: 
-make sure 2021 X01 WGS and RNAseq are in all_htp_datafiles
-get TCR/BCR samples from Matt/Angela as well
+Check Matt's 2021 X01 manifest
+```{r}
+vbr_x01_subset <- read_delim(synGet("syn52525144")$path, "\t")
+```
+
+2 samples (3 containers) don't have sampleID_old but do have global IDs:
+HTP0471A_WhiteBloodCellsRNA
+HTP0236A2_WhiteBloodCellsRNA
+(Comment: NEW samples since portal v3 WITH global IDs)
+-> don't worry about these, they just have 2 containers, 1 of which doesn't have 
+sampleID_old but the other one does
+
+the rest of the samples with no SampleID_old don't have global IDs 
+
+```{r}
+vbr_x01_subset %>% 
+  #filter(str_detect(HTP_comment, "NEW")) %>%
+  filter(str_detect(HTP_comment, "WITHOUT")) %>%
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  distinct() %>% 
+  left_join(vbr_biospecimens_updated_samples %>% 
+              select(SampleID, SampleID_old, global_id_final) %>% 
+              distinct(),
+            by = "SampleID") %>% 
+  filter(!is.na(global_id_final))
+
+# I didn't find any other global IDs for those samples
+```
+
+Check the above X01 subset again with dewrangle and v3 portal
+```{r}
+vbr_x01_subset %>% 
+  filter(str_detect(HTP_comment, "WITHOUT")) %>%
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  distinct() %>% 
+  left_join(htp_dewrangle_specimens %>% select(-fhir_resource_type),
+            by = c("SampleID" = "descriptor")) %>% 
+  filter(!is.na(global_id)) #0
+
+vbr_x01_subset %>% 
+  filter(str_detect(HTP_comment, "WITHOUT")) %>%
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  distinct() %>% 
+  left_join(portal_dump %>% select(`Sample ID`, `External Sample ID`),
+            by = c("SampleID" = "External Sample ID")) %>% 
+  filter(!is.na(`Sample ID`)) #0
+
+```
 
 
+check that globals in matt's export match mine
+
+```{r}
+vbr_x01_subset %>% 
+  filter(!str_detect(HTP_comment, "WITHOUT")) %>%
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  distinct() %>% 
+  left_join(vbr_biospecimens_updated_samples %>% 
+              select(SampleID, SampleID_old, global_id_final) %>% 
+              distinct(),
+            by = "SampleID") %>% 
+  filter(Sample_global_id != global_id_final) #0
+```
+
+check if any vbr_biospecimen_updated_samples in x01 subset don't have global ID
+
+```{r}
+x01_with_global <- vbr_x01_subset %>% 
+  select(SampleID, Sample_global_id) %>% 
+  filter(!is.na(Sample_global_id)) %>% 
+  distinct() %>% pull(SampleID)
+
+vbr_biospecimens_updated_samples %>% 
+  filter(SampleID %in% x01_with_global) %>% 
+  filter(is.na(Sample_global_id)) #0
+
+setdiff(vbr_x01_subset$Sample_global_id, vbr_biospecimens_updated_samples$global_id_final) #0
+
+# check the 2 samples in Matt's x01 that are "new WITH global" - these match my global_id_final
+vbr_biospecimens_updated_samples %>% 
+  filter(SampleID %in% c("HTP0471A_WhiteBloodCellsRNA", "HTP0236A2_WhiteBloodCellsRNA")) %>% 
+  select(SampleID, SampleID_old, Sample_global_id, global_id_final)
+```
 
 
+<!-- Final attempt to match more samples to dewrangle by putting spaces back in suffixes: -->
+<!-- - get unique suffixes from vbr_biospecimens -->
+<!-- - add spaces manually in excel, or match old dewrangle suffixes -->
+<!-- - recreate "old" sample IDs -->
+<!-- ```{r} -->
+<!-- htp_dewrangle_specimens %>%  -->
+<!--   separate(descriptor, into = c("LabID", "Suffix"), sep = "_", remove = FALSE) %>%  -->
+<!--   select(Suffix) %>% distinct() -->
+
+<!-- suffixes <- read_xlsx(here::here("data", "htp_vbr_suffixes.xlsx")) -->
+
+<!-- vbr_biospecimens_updated_samples %>%  -->
+<!--   filter(is.na(global_id_final)) %>% -->
+<!--   select(SampleID) %>%  -->
+<!--   distinct() %>%  -->
+<!--   separate(SampleID, into = c("LabID", "Suffix"), sep = "_", remove = FALSE) %>%  -->
+<!--   left_join(suffixes) %>%  -->
+<!--   unite("SampleID_old_recreated", c(LabID, Suffix_old), sep = "_") %>%  -->
+<!--   select(SampleID, SampleID_old_recreated) %>%  -->
+<!--   left_join(htp_dewrangle_specimens %>% select(-fhir_resource_type), -->
+<!--             by = c("SampleID_old_recreated" = "descriptor")) %>%  -->
+<!--   filter(!is.na(global_id)) %>%  -->
+<!--   write_csv(here::here("output", "htp_vbr_global_ids_by_semi_manual_matching.csv")) -->
+<!-- ``` -->
+
+## Dewrangle:
+
+Separately update HTP0297A6_DNA to HTP0297A_WhiteBloodCellsDNA descriptor for bs-rbrtyrgb
+Then redo the above steps to get vbr_biospecimens_updated_samples with correct global_id_final
+for HTP0297A_WhiteBloodCellsDNA
+```{r}
+tibble(descriptor = "HTP0297A_WhiteBloodCellsDNA",
+       fhir_resource_type = "Specimen",
+       global_id = "bs-rbrtyrgb") %>% 
+  write_csv(here::here("output", "dewrangle_update_HTP0297A.csv"))
+
+# import back only NEW descriptors, including HTP0297A_WhiteBloodCellsDNA
+htp_dewrangle_specimens <- read_csv(here::here("data", "global-descriptors-htp_2023-09-28.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+```
+
+
+dewrangle input: need new IDs for all samples in vbr_updated that don't have one
+- all v1/v3 samples with datafiles (except HTP0297A6, which Christina needs to correct) are in vbr
+- all x01 samples are in vbr
+```{r}
+needs_global <- vbr_biospecimens_updated_samples %>% 
+  filter(is.na(global_id_final)) %>%
+  #no global_id_final, Sample_global_id, or SampleID_old
+  pull(SampleID) %>% 
+  unique() #9198
+
+htp_dewrangle_specimens %>% 
+  filter(descriptor %in% needs_global) #0
+
+vbr_x01_subset %>% 
+  filter(SampleID %in% needs_global) #212
+```
+
+Check against Matt's numbers:
+Distinct HTP samples = 14,561
+Distinct HTP samples WITH global ids = 5,335
+Distinct HTP samples WITHOUT global ids = 9,226
+Existing Sample global ids = 6,660
+Matched Sample global ids already in HTP Biospecimens table = 5,335
+Unmatched Sample global ids TO BE DEPRECATED = 1,325 
+
+```{r}
+nrow(vbr_biospecimens_updated_samples) 
+#41504
+
+n_distinct(vbr_biospecimens_updated_samples$SampleID) 
+#14515 [-46 saliva samples?]
+
+n_distinct(vbr_biospecimens_updated_samples$global_id_final, na.rm = TRUE) 
+#5317
+
+vbr_biospecimens_updated_samples %>% 
+  select(SampleID, global_id_final) %>% 
+  filter(is.na(global_id_final)) %>% 
+  unique() 
+#9198
+
+n_distinct(htp_dewrangle_specimens$global_id) 
+#6660
+
+htp_dewrangle_specimens %>% 
+  filter(!global_id %in% vbr_biospecimens_updated_samples$global_id_final) 
+#1343
+
+```
+
+Compare my list of globals to be deprecated with Matt's
+```{r}
+matt_deprecate_list <- read_delim(synGet("syn52570426")$path, "\t")
+
+pierrette_deprecate_list <- htp_dewrangle_specimens %>% 
+  filter(!global_id %in% vbr_biospecimens_updated_samples$global_id_final)
+
+setdiff(pierrette_deprecate_list$descriptor, matt_deprecate_list$descriptor_orig)
+# the 46 saliva samples!
+```
+
+dewrangle input:
 
 
 ```{r}
-vbr_dewrangle_update_input %>% write_csv(here::here("output", "vbr_dewrangle_update_input.csv"))
+vbr_biospecimens_updated_samples %>% 
+  select(SampleID, global_id_final) %>% 
+  filter(is.na(global_id_final)) %>% 
+  distinct() %>% 
+  select(descriptor = SampleID) %>% 
+  mutate(fhir_resource_type = "Specimen") %>% 
+  write_csv(here::here("output", "vbr_dewrangle_input_2023-09-28.csv"))
+
+# submit input to dewrangle; download only new descriptors
+
+htp_dewrangle_specimens_updated <- read_csv(here::here("data", "global-descriptors-htp-new_2023-09-28.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
 
 ```
 
+add new globals to vbr_biospecimen
+```{r}
+vbr_biospecimens_updated_samples_20230928 <- vbr_biospecimens_updated_samples %>% 
+  left_join(htp_dewrangle_specimens_updated %>% select(descriptor, global_id),
+            by = c("SampleID" = "descriptor")) %>% 
+  rename(global_id_new_20230928 = global_id) %>% 
+  #filter(is.na(global_id_new_20230928) & is.na(global_id_final)) #0
+  #filter(!is.na(global_id_final) & !is.na(global_id_new_20230928))  %>%
+    #filter(global_id_final != global_id_new_20230928) #0
+  mutate(global_id_final_20230928 = case_when(
+    is.na(global_id_final) ~ global_id_new_20230928,
+    TRUE ~ global_id_final
+  )) 
+  #filter(is.na(global_id_final_20230928))
+  #filter(!is.na(global_id_final)) %>% filter(global_id_final != global_id_final_20230928)
+  #filter(!is.na(global_id_new_20230928)) %>% filter(global_id_new_20230928 != global_id_final_20230928)
+  #filter(!is.na(Sample_global_id)) %>% filter(Sample_global_id != global_id_final_20230928)
+```
+
+Get Container Global IDs
+(Matt had already replaced -999999 ContainerIDs with NA)
+```{r}
+vbr_biospecimens_updated_samples_20230928 %>% 
+  filter(ContainerID > 0) %>% 
+  select(ContainerID) %>% 
+  distinct() %>% 
+  select(descriptor = ContainerID) %>% 
+  mutate(fhir_resource_type = "Specimen") %>% 
+  write_csv(here::here("output", "vbr_dewrangle_input_containers_2023-09-28.csv"))
+
+# submit to dewrangle, download only new descriptors
+
+htp_dewrangle_specimens_updated_containers <- read_csv(here::here("data", "global-descriptors-htp-new_containers_2023-09-28.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+
+```
+
+Add Parent, Collection & Container Globals
+```{r}
+vbr_biospecimens_updated_final <- vbr_biospecimens_updated_samples_20230928 %>%
+  mutate(ContainerID_char = as.character(ContainerID)) %>% 
+  left_join(htp_dewrangle_specimens_updated_containers %>% 
+              select(descriptor, global_id),
+            by = c("ContainerID_char" = "descriptor")) %>% 
+  rename(containerGlobalId = global_id) %>%
+  #filter(ContainerID>0) %>% filter(is.na(containerGlobalId)) #0
+  left_join(htp_dewrangle_specimens_updated_containers %>% 
+              select(descriptor, global_id),
+            by = c("ParentSampleID" = "descriptor")) %>% 
+  rename(parentSampleGlobalId = global_id) %>%
+  #filter(is.na(parentSampleGlobalId)) %>% filter(ParentSampleID != "NULL")
+  #HTP0748A_PAXgeneWholeBloodDNATube, HTP0755A_PAXgeneWholeBloodDNATube, HTP0760A_PAXgeneWholeBloodDNATube
+  left_join(htp_dewrangle_specimens_updated_containers %>% 
+              select(descriptor, global_id),
+            by = c("CollectionID" = "descriptor")) %>% 
+  rename(collectionGlobalId = global_id)
+  #filter(is.na(collectionGlobalId)) #0
+   
+
+```
+
+Parent Samples HTP0748A_PAXgeneWholeBloodDNATube, HTP0755A_PAXgeneWholeBloodDNATube, HTP0760A_PAXgeneWholeBloodDNATube didn't match parent sample global IDs in dewrangle
+They all have Sample_global_id in Matt's original export
+bs-afybb9mkp8
+bs-tq8i7p8nbn
+bs-aekbdanfp3
+Sample_old is DNA_paxgene
+These globals match DNA_paxgene samples in dewrangle
+
+In X01 manifest:
+HTP0748A_PAXgeneWholeBloodDNA
+HTP0755A_PAXgeneWholeBloodDNA
+HTP0760A_PAXgeneWholeBloodDNA
+
+In dewrangle:
+both DNA_paxgene and PAXgeneWholeBloodDNA for each
+global IDs for DNA_paxgene match the PAXgeneWholeBloodDNATube
+
+The PAXgeneWholeBloodDNA globals in dewrangle
+bs-iyh48xa22e
+bs-b2ejdfk7jh
+bs-k94dfqy39z
 
 
 ##### HARMONIZATION
 
-**TODO:** add Participant & Sample Global IDs
-
-Harmonize Biospecimen
-
-**TODO:** CLean up NULL vs N/A
-REMOVE DUPLICATE ROWS
+CLean up NULL vs N/A
 
 ```{r}
-vbr_biospecimens %>% 
+ vbr_biospecimens_harmonized <- vbr_biospecimens_updated_final %>% 
   select(studyCode = StudyCode,
          participantExternalId = ParticipantExternalID,
+         participantGlobalId = Participant_global_id_updated,
          sampleExternalId = SampleID,
+         sampleGlobalId = global_id_final_20230928,
          sampleType = SampleType,
          ageAtBiospecimenCollection = AgeInDaysAtBiospecimenCollection,
          parentSampleExternalId = ParentSampleID,
+         parentSampleGlobalId,
          parentSampleType = ParentSampleType,
          collectionExternalId = CollectionID,
+         collectionGlobalId,
          collectionSampleType = CollectionSampleType,
          containerExternalId = ContainerID,
+         containerGlobalId,
          volume = Volume,
          volumeUnit = VolumeUnit,
          laboratoryProcedure = LaboratoryProcedure,
          biospecimenStorage = BiospecimenStorage,
          sampleAvailability = SampleAvailability,
-         containerAvailability = containerAvailability) %>% 
-  mutate(participantGlobalId = "TBD",
-         sampleGlobalId = "TBD",
-         parentSampleGlobalId = "TBD",
-         collectionGlobalId = "TBD") %>% 
-  write_csv(here::here("output", "vbr_biospecimens_draft_2023-08-15.csv"))
+         containerAvailability = containerAvailability) %>%
+  #select_if(function(x) any(is.na(x)))
+  #parentSampleGlobalId, containerExternalId, containerGlobalId
+  mutate(across(where(is.character), ~na_if(., "NULL"))) %>% 
+  mutate(across(where(is.character), ~na_if(., "N/A")))
+
+vbr_biospecimens_harmonized %>% 
+  write_csv(here::here("output", "vbr_biospecimens_harmonized_2023-09-28.csv"))
 
 ```
+
+Check against Matt's numbers again:
+Distinct HTP samples = 14,561
+Distinct HTP samples WITH global ids = 5,335
+Distinct HTP samples WITHOUT global ids = 9,226
+Existing Sample global ids = 6,660
+Matched Sample global ids already in HTP Biospecimens table = 5,335
+Unmatched Sample global ids TO BE DEPRECATED = 1,325 
+
+```{r}
+nrow(vbr_biospecimens_harmonized) 
+#41504
+
+n_distinct(vbr_biospecimens_harmonized$sampleExternalId) 
+#14515 [-46 saliva samples?]
+
+n_distinct(vbr_biospecimens_harmonized$sampleExternalId, na.rm = TRUE) 
+#14515
+
+vbr_biospecimens_harmonized %>% 
+  select(sampleExternalId, sampleGlobalId) %>% 
+  filter(is.na(sampleGlobalId)) %>% 
+  unique() 
+#0
+
+n_distinct(htp_dewrangle_specimens_updated$global_id) 
+#15858 -> 53027 with containers
+
+htp_dewrangle_specimens_updated %>% 
+  filter(!global_id %in% vbr_biospecimens_harmonized$sampleGlobalId) 
+#1343
+
+```
+
+## MANUAL FIXES TO LAST 3 SAMPLES
+
+HTP0748A_PAXgeneWholeBloodDNA
+HTP0748A_PAXgeneWholeBloodDNATube
+HTP0755A_PAXgeneWholeBloodDNA
+HTP0755A_PAXgeneWholeBloodDNATube
+HTP0760A_PAXgeneWholeBloodDNA
+HTP0760A_PAXgeneWholeBloodDNATube
+
+I manually edited the VBR export and saved it as a new version on Synapse.
+- swapped HTP_comment, SampleType_old, SampleID_old for DNA/DNATube samples
+- Added Participant_global_id to all samples
+- Filled in new Global IDs for DNATube samples created in dewrangle 
+- Manually added HTP0297A6_DNA as SampleID_old for HTP0297A_WhiteBloodCellsDNA, 
+and added Sample_global_id bs-rbrtyrgb
+
+
+Saved HTP_DCC_VBR_BIOSPECIMENS_PL_corrected_3_DNATube_2023-10-04.csv
+on Synapse as HTP_VBR_biospecimens v11 (syn52138216)
+===
+Marcel modified the dewrangle file - newest:
+HTP0748A_PAXgeneWholeBloodDNA	        bs-iyh48xa22e
+HTP0748A_PAXgeneWholeBloodDNATube	    bs-afybb9mkp8
+HTP0755A_PAXgeneWholeBloodDNA	        bs-b2ejdfk7jh
+HTP0755A_PAXgeneWholeBloodDNATube	    bs-tq8i7p8nbn
+HTP0760A_PAXgeneWholeBloodDNA	        bs-k94dfqy39z
+HTP0760A_PAXgeneWholeBloodDNATube	    bs-aekbdanfp3
+
+DNA_paxgene is now the older descriptor for PAXgeneWholeBloodDNA. Unfortunately it
+is different from the v3 portal where e.g. HTP0748A_DNA_paxgene was bs-afybb9mkp8,
+but let's just move on with this
+
+Saved global-descriptors-htp-newest_2023-10-05.csv on Synapse 
+as global_ids_from_dewrangle v3 (syn52293082)
+===
+Manual modification of vbr_biospecimens_harmonized for corrected Global IDs:
+just added Global IDs to Parent Sample Global ID col for DNATube samples
+
+Check again:
+```{r}
+vbr_biospecimens_harmonized_20231005 <- read_csv(
+  here::here("output", "vbr_biospecimens_harmonized_interim_2023-10-05.csv"))
+
+htp_dewrangle_specimens_20231005 <- read_csv(here::here("data", "global-descriptors-htp-newest_2023-10-05.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+
+
+nrow(vbr_biospecimens_harmonized_20231005) 
+#41504
+
+n_distinct(vbr_biospecimens_harmonized_20231005$sampleExternalId) 
+#14515 [-46 saliva samples?]
+
+n_distinct(vbr_biospecimens_harmonized_20231005$sampleExternalId, na.rm = TRUE) 
+#14515
+
+vbr_biospecimens_harmonized_20231005 %>% 
+  select(sampleExternalId, sampleGlobalId) %>% 
+  filter(is.na(sampleGlobalId)) %>% 
+  unique() 
+#0
+
+n_distinct(htp_dewrangle_specimens_20231005$global_id) 
+#15858 -> 53027 with containers
+
+htp_dewrangle_specimens_20231005 %>% 
+  filter(str_detect(descriptor, "HTP")) %>% #only samples, not containers
+  filter(!global_id %in% vbr_biospecimens_harmonized_20231005$sampleGlobalId) %>% 
+  distinct()
+#1343 to be deprecated
+
+```
+
+Finalize colnames & write out
+```{r}
+vbr_biospecimens_harmonized_20231005 %>%
+  mutate(concentration = NA,
+         concentrationUnit = NA) %>% 
+  select(all_of(biospecimen_schemalabels)) %>% 
+  setNames(biospecimen_displaynames) %>%
+  write_csv(here::here("output", "vbr_biospecimens_harmonized_2023-10-05.csv"))
+```
+
+
+Upload vbr_biospecimens_harmonized_2023-10-05.csv to Synapse
+as htp_vbr_biospecimens_harmonized (syn52599895)
+
+
+==========================
+
+## DATAFILE MANIFESTS
+
+
+Join harmonized data to v1/v3 datafile manifest to make sure sample IDs are up to date
+```{r}
+# corrected vbr export
+vbr_export_20231004 <- read_delim(synGet("syn52138216")$path, "\t")
+# v3 files 
+v3_datafiles <- read_csv(synGet("syn52431530")$path)
+# v1 files (need to check global IDs)
+v1_datafiles <- read_csv(synGet("syn52431533")$path)
+```
+
+Compare v1 globals to vbr export
+```{r}
+v1_datafiles %>% 
+  left_join(vbr_export_20231004 %>% 
+              select(SampleID, SampleID_old, Sample_global_id) %>% 
+              distinct(),
+            by = c("sample_id" = "SampleID_old")) %>% 
+  filter(global_id != Sample_global_id)
+  #filter(sample_id != SampleID) #0
+```
+
+All globals & sample IDs in v1 manifest match vbr export 
+Now check against latest dewrangle
+
+```{r}
+v1_datafiles %>%
+  select(sample_id, global_id) %>% 
+  left_join(htp_dewrangle_specimens_20231005 %>% select(descriptor, global_id),
+            by = c("sample_id" = "descriptor")) %>% 
+  filter(global_id.x != global_id.y) #0
+
+v1_datafiles %>%
+  select(sample_id, global_id) %>% 
+  left_join(htp_dewrangle_specimens_20231005 %>% select(descriptor, global_id),
+            by = "global_id") %>% 
+  filter(sample_id != descriptor) #0
+
+# all good!
+```
+
+
+Now check v3 files
+```{r}
+v3_datafiles %>% 
+  select(`Sample External ID`) %>% 
+  distinct() %>% 
+  left_join(vbr_export_20231004 %>% 
+              select(SampleID, SampleID_old, Sample_global_id) %>% 
+              distinct(),
+            by = c("Sample External ID" = "SampleID_old")) %>% 
+  #filter(is.na(Sample_global_id))
+  filter(`Sample External ID` != SampleID)
+
+# all good after manual correction of 297A_DNA
+```
+
+Bring in New Sample IDs and Global IDs
+```{r}
+v3_datafiles %>% 
+  rename(SampleID_old = `Sample External ID`) %>%
+  left_join(vbr_export_20231004 %>% 
+              select(SampleID, SampleID_old, Sample_global_id, Participant_global_id) %>% 
+              distinct(),
+            by = "SampleID_old") %>%
+  relocate(Sample_global_id, SampleID, .before = SampleID_old) %>%
+  relocate(Participant_global_id, .before = `Participant External ID`) %>% 
+  #filter(is.na(Participant_global_id))
+  select(`Study Code`, 
+         `Participant Global ID` = Participant_global_id,
+         `Participant External ID`,
+         `Sample Global ID` = Sample_global_id,
+         `Sample External ID` = SampleID,
+         `File Global ID`,
+         `File External ID`,
+         `File Name`,
+         `File Hash`,
+         `Data Access`,
+         `Data Category`,
+         `Data Type`,
+         `Experimental Strategy`,
+         `Experimental Platform` = Platform,
+         `File Format`,
+         `File Size` = Size,
+         `File Size Unit`,
+         `Access URL`,
+         `Publication DOI`) %>% 
+  write_csv(here::here("output",
+                       "FV_PJ79R4DY_FV_9Q2N4BTN_FV_7MVH1YCE_htp_datafile_manifest_w_crnic_files_v5.csv"))
+  
+```
+
+
+Create File Global IDs for v1
+Per Christina: use convention `include-study-us-east-1-prd-sd-7ydc1w4h/<file_id>`
+
+```{r}
+v1_datafiles %>% 
+  select(descriptor = file_id) %>% 
+  distinct() %>% 
+  mutate(descriptor = paste0("include-study-us-east-1-prd-sd-7ydc1w4h/", descriptor),
+         fhir_resource_type = "DocumentReference") %>% 
+  write_csv(here::here("output",
+                       "htp_dewrangle_input_v1_datafiles.csv"))
+
+## Input to dewrangle
+
+## Get output
+htp_dewrangle_files_v1 <- read_csv(here::here("data", "global-descriptors-htp-newest_2023-10-10.csv")) %>% 
+  filter(str_detect(descriptor, "include-study-us-east-1-prd-sd-7ydc1w4h/")) %>% 
+  select(descriptor, file_global_id = global_id) %>% 
+  mutate(descriptor = str_replace(descriptor, "include-study-us-east-1-prd-sd-7ydc1w4h/", ""))
+```
+
+
+Reformat v1 to match v3
+Get Participant Global IDs
+Get File Global IDs
+**Don't have File Global IDs -> ask Christina**
+```{r}
+v1_datafiles %>%
+  left_join(htp_dewrangle_files_v1,
+            by = c("file_id" = "descriptor")) %>% 
+ #filter(is.na(file_global_id))
+  left_join(vbr_export_20231004 %>% 
+              select(SampleID, Participant_global_id) %>% 
+              distinct(),
+            by = c("sample_id" = "SampleID")) %>%
+  mutate(studyCode = "HTP",
+         fileHash = NA,
+         fileSizeUnit = "bytes",
+         publicationDoi = NA) %>% 
+  select(studyCode,
+         participantGlobalId = Participant_global_id,
+         participantExternalId = subject_id,
+         sampleGlobalId = global_id,
+         sampleExternalId = sample_id,
+         fileGlobalId = file_global_id,
+         fileExternalId = file_id,
+         fileName = filename,
+         fileHash,
+         dataAccess = access_type,
+         dataCategory = data_category,
+         dataType = data_type,
+         experimentalStrategy = experiment_strategy,
+         experimentalPlatform = platform,
+         fileFormat = file_format,
+         fileSize = size_bytes,
+         fileSizeUnit,
+         accessUrl = drs_uri,
+         publicationDoi) %>% 
+  select(all_of(datafile_schemalabels)) %>% 
+  setNames(datafile_displaynames)
+
+ 
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
