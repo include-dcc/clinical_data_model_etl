@@ -925,9 +925,8 @@ htp_dewrangle_files_v1 <- read_csv(here::here("data", "global-descriptors-htp-ne
 
 
 Reformat v1 to match v3
-Get Participant Global IDs
-Get File Global IDs
-**Don't have File Global IDs -> ask Christina**
+Add Participant Global IDs
+Add File Global IDs
 ```{r}
 v1_datafiles %>%
   left_join(htp_dewrangle_files_v1,
@@ -961,7 +960,9 @@ v1_datafiles %>%
          accessUrl = drs_uri,
          publicationDoi) %>% 
   select(all_of(datafile_schemalabels)) %>% 
-  setNames(datafile_displaynames)
+  setNames(datafile_displaynames) %>% 
+  write_csv(here::here("output",
+                       "htp_v1_omics_datafiles_2023-10-10.csv"))
 
  
 

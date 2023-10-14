@@ -20,7 +20,7 @@ synLogin()
 Get VBR files
 
 ```{r}
-hakon_vbr <- read_xlsx(synGet("syn52504777")$path)
+hakon_vbr <- read_csv(synGet("syn52504777")$path)
 
 hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
 hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
@@ -35,10 +35,76 @@ hakon_clinical_all <- hakon_clin_dna %>%
 
 Confirm all samples have clinical data
 ```{r}
-setdiff(hakon_vbr$`Participant External ID_orig`, hakon_clinical_all$`Participant ID`)
-setdiff(hakon_clinical_all$`Participant ID`, hakon_vbr$`Participant External ID_orig`)
+nrow(hakon_vbr) #18794
+n_distinct(hakon_vbr$`Participant External ID orig`) #1152
+n_distinct(hakon_clinical_all$`Participant ID`) #1152
+
+setdiff(hakon_vbr$`Participant External ID orig`, hakon_clinical_all$`Participant ID`)
+setdiff(hakon_clinical_all$`Participant ID`, hakon_vbr$`Participant External ID orig`)
 
 hakon_vbr %>% 
-  filter(`Participant External ID_orig` %in% hakon_clinical_all$`Participant ID`)
+  filter(`Participant External ID orig` %in% hakon_clinical_all$`Participant ID`)
 ```
+
+Excel
+- make sure any blank Volume Unit or Concentration Unit doesn't also have a number
+- if Sample Availability = No then Container Availability should also = No
+
+Check that every Collection and Parent Sample is also a Sample
+Check that all Container IDs are unique
+```{r}
+n_distinct(hakon_vbr$`Sample ID (Calc)`) #4151
+n_distinct(hakon_vbr$`Container ID`) #10855
+n_distinct(hakon_vbr$`Parent Sample ID (Calc)`) #4473
+n_distinct(hakon_vbr$`Parent Sample Container ID`) #4473
+n_distinct(hakon_vbr$`Collection ID`) #1152
+n_distinct(hakon_vbr$`Collection Container ID`) #1588
+```
+
+Why is there >1 Container of a Collection?
+```{r}
+hakon_vbr %>% 
+  select(`Collection ID`, `Collection Container ID`) %>%
+  distinct() %>% 
+ count(`Collection ID`) %>% 
+  arrange(desc(n))
+```
+
+**2023-10-12:** Replace old v3 Sample IDs (e.g. aliquot_105366888_parent) 
+with new Sample IDs from their VBR manifest (e.g. KFDS0451188158_Proband_DNA)
+These will eventually be replaced with newer Sample IDs without spaces
+
+```{r}
+hakon_datafiles_v3 <- read_csv(synGet("syn52660168")$path)
+
+hakon_dewrangle_specimens <- read_csv(here::here("data", "global-descriptors-new-x01-hakon_2023-10-12.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+```
+
+hakon biospecimens draft - get container IDs
+```{r}
+hakon_biospecimen_draft <- read_csv(here::here("output", "hakon_biospecimen_DRAFT.csv"))
+```
+
+```{r}
+hakon_datafiles_v4 <- hakon_datafiles_v3 %>% 
+  left_join(hakon_biospecimen_draft %>% select(`Sample External ID`, `Sample Global ID`, `Container External ID`, `Container Global ID`),
+            by = "Sample External ID")
+
+hakon_datafiles_v4 %>%
+  left_join(hakon_vbr %>% select(`Sample ID (Calc)`, `Container ID`),
+            by = c("Container External ID" = "Container ID"))
+
+##TODO: add "KFDS" to Container IDs
+```
+
+
+
+
+
+
+
+
+
+
 
