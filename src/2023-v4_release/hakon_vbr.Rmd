@@ -88,20 +88,20 @@ hakon_biospecimen_draft <- read_csv(here::here("output", "hakon_biospecimen_DRAF
 
 ```{r}
 hakon_datafiles_v4 <- hakon_datafiles_v3 %>% 
-  left_join(hakon_biospecimen_draft %>% select(`Sample External ID`, `Sample Global ID`, `Container External ID`, `Container Global ID`),
+  left_join(hakon_biospecimen_draft %>% 
+              select(`Sample External ID`, `Sample Global ID`, 
+                     `Container External ID`, `Container Global ID`) %>% 
+              mutate(`Container External ID` = paste0("KFDS", `Container External ID`, sep = "")),
             by = "Sample External ID")
 
 hakon_datafiles_v4 %>%
   left_join(hakon_vbr %>% select(`Sample ID (Calc)`, `Container ID`),
-            by = c("Container External ID" = "Container ID"))
+            by = c("Container External ID" = "Container ID")) %>% view()
 
-##TODO: add "KFDS" to Container IDs
 ```
 
 
-
-
-
+TODO: Aliquot IDs != Container IDs!! :(
 
 
 

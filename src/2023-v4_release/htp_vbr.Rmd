@@ -584,6 +584,7 @@ vbr_biospecimens_updated_samples_20230928 <- vbr_biospecimens_updated_samples %>
 
 Get Container Global IDs
 (Matt had already replaced -999999 ContainerIDs with NA)
+#Next time also replace -1 Volume with NA
 ```{r}
 vbr_biospecimens_updated_samples_20230928 %>% 
   filter(ContainerID > 0) %>% 
@@ -970,6 +971,82 @@ v1_datafiles %>%
 ```
 
 
+## X01 FILES - minimal clinical data & biospecimen
+
+numbers from Matt:
+WGS from "PAXgene Whole Blood DNA" = 18 samples
+WGS from "White Blood Cells DNA" = 1 sample
+RNAseq from "PAXgene Whole Blood RNA" = 139 samples
+RNAseq from "White Blood Cells RNA" = 416 samples
+
+Minimal data fields for CHOP BIX:
+race
+gender
+ethnicity
+affected status
+relationships
+source text tissue type
+age at event days
+source text tumor descriptor
+composition 
+analyte type
+
+```{r}
+htp_2021_x01_minimal <- vbr_biospecimens_harmonized_20231005 %>% 
+  filter(containerExternalId %in% vbr_x01_subset$ContainerID) %>% 
+  select(studyCode, participantExternalId, participantGlobalId, 
+         sampleExternalId, sampleGlobalId, sampleType, ageAtBiospecimenCollection,
+         containerExternalId, containerGlobalId) %>% 
+  left_join(vbr_participants_harmonized_final %>%
+              select(`Participant External ID`, Sex, Race, Ethnicity,
+                     `Down Syndrome Status`, `Family ID`, `Family Relationship`, `Family Type`),
+            by = c("participantExternalId" = "Participant External ID")) %>% 
+  mutate(source_text_tissue_type = "Normal",
+         source_text_tumor_descriptor = NA,
+         relationships = case_when(
+           `Family Relationship` == "Sibling" & Sex == "Male" ~ "Brother",
+           `Family Relationship` == "Sibling" & Sex == "Female" ~ "Sister",
+           `Family Relationship` == "Parent" & Sex == "Male" ~ "Father",
+           `Family Relationship` == "Parent" & Sex == "Female" ~ "Mother",
+           TRUE ~ `Family Relationship`
+         ))
+
+
+  filter(relationships == "Other") %>% 
+  write_csv(here::here("output", "htp_relationships_other.csv"))
+```
+
+## dbGaP for 2021 X01
+
+Subject-Consent Mapping:
+SUBJECT_ID
+CONSENT
+SEX
+
+TODO: add subject overlap with 2018 X01 from Christina
+
+```{r}
+unique(htp_2021_x01_minimal$Sex)
+#M, F
+
+htp_dbgap_subject_consent <- htp_2021_x01_minimal %>% 
+  select(SUBJECT_ID = participantExternalId, Sex) %>%
+  distinct() %>% 
+  mutate(CONSENT = 1,
+         SEX = if_else(Sex == "Male", 1, 2)) %>% 
+  select(SUBJECT_ID, CONSENT, SEX)
+```
+
+Subject-Sample Mapping:
+SUBJECT_ID
+SAMPLE_ID
+
+```{r}
+htp_2021_x01_minimal %>% 
+  select(SUBJECT_ID = participantExternalId, SAMPLE_ID = sampleExternalId) %>% 
+  distinct()
+  
+```
 
 
 
