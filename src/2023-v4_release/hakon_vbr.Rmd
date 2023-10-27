@@ -35,7 +35,7 @@ hakon_clinical_all <- hakon_clin_dna %>%
 
 Confirm all samples have clinical data
 ```{r}
-nrow(hakon_vbr) #18794
+nrow(hakon_vbr) #old version v5 = 18794 new version v7 = 17137
 n_distinct(hakon_vbr$`Participant External ID orig`) #1152
 n_distinct(hakon_clinical_all$`Participant ID`) #1152
 
@@ -53,12 +53,13 @@ Excel
 Check that every Collection and Parent Sample is also a Sample
 Check that all Container IDs are unique
 ```{r}
-n_distinct(hakon_vbr$`Sample ID (Calc)`) #4151
+n_distinct(hakon_vbr$`Sample ID (Calc)`) #v5=4151 v7=4151
 n_distinct(hakon_vbr$`Container ID`) #10855
-n_distinct(hakon_vbr$`Parent Sample ID (Calc)`) #4473
-n_distinct(hakon_vbr$`Parent Sample Container ID`) #4473
+n_distinct(hakon_vbr$`Parent Sample ID (Calc)`) #v5=4473 v7=3659
+n_distinct(hakon_vbr$`Parent Sample Container ID`) #4473 #1588
 n_distinct(hakon_vbr$`Collection ID`) #1152
 n_distinct(hakon_vbr$`Collection Container ID`) #1588
+
 ```
 
 Why is there >1 Container of a Collection?

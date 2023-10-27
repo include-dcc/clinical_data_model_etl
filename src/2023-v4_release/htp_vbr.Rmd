@@ -997,6 +997,9 @@ htp_2021_x01_minimal <- vbr_biospecimens_harmonized_20231005 %>%
   select(studyCode, participantExternalId, participantGlobalId, 
          sampleExternalId, sampleGlobalId, sampleType, ageAtBiospecimenCollection,
          containerExternalId, containerGlobalId) %>% 
+  left_join(vbr_x01_subset %>% 
+              select(ContainerID, SAMPLE_ALIAS, SM_ID),
+            by = c("containerExternalId" = "ContainerID")) %>% 
   left_join(vbr_participants_harmonized_final %>%
               select(`Participant External ID`, Sex, Race, Ethnicity,
                      `Down Syndrome Status`, `Family ID`, `Family Relationship`, `Family Type`),
@@ -1008,13 +1011,55 @@ htp_2021_x01_minimal <- vbr_biospecimens_harmonized_20231005 %>%
            `Family Relationship` == "Sibling" & Sex == "Female" ~ "Sister",
            `Family Relationship` == "Parent" & Sex == "Male" ~ "Father",
            `Family Relationship` == "Parent" & Sex == "Female" ~ "Mother",
-           TRUE ~ `Family Relationship`
-         ))
+           TRUE ~ `Family Relationship`),
+         analyte_type = case_when(
+           str_detect(sampleType, "RNA") ~ "RNA",
+           str_detect(sampleType, "DNA") ~ "DNA")
+         ) %>% 
+  select(studyCode, participantExternalId, participantGlobalId, 
+         race = Race,
+         gender = Sex, 
+         ethnicity = Ethnicity, 
+         affected_status = `Down Syndrome Status`,
+        `Family ID`, 
+        relationships, 
+        sampleExternalId, sampleGlobalId, containerExternalId, containerGlobalId, SAMPLE_ALIAS, SM_ID,
+        source_text_tissue_type, 
+        age_at_event_days = ageAtBiospecimenCollection,
+        source_text_tumor_descriptor,
+        composition = sampleType,
+        analyte_type)
 
+htp_2021_x01_minimal %>% 
+  write_csv(here::here("output", "htp_2021_x01_minimal_with_Broad_ids.csv"))
 
-  filter(relationships == "Other") %>% 
-  write_csv(here::here("output", "htp_relationships_other.csv"))
 ```
+
+Check "Other" relationships - are these from multi-member families, or singletons?
+
+```{r}
+control_other_families <- htp_2021_x01_minimal %>%  
+  filter(relationships == "Other") %>% 
+  pull(`Family ID`) %>% 
+  unique()
+
+vbr_participants_harmonized_final %>%
+  filter(`Family ID` %in% control_other_families) %>% 
+  select(`Participant External ID`, `Family ID`, `Family Type`, `Father ID`, `Mother ID`,
+         `Sibling ID`, `Other Family Member ID`, `Family Relationship`, `Age at First Patient Engagement`, Sex) %>% 
+  add_count(`Family ID`, name = "n_in_family") %>% 
+  arrange(n_in_family, `Family ID`)
+
+#  write_csv(here::here("output", "htp_control_families.csv"))
+
+
+#47 control singletons
+# 3 multi-families - Other is the "Proband"
+    
+#  write_csv(here::here("output", "htp_relationships_other.csv"))
+
+```
+
 
 ## dbGaP for 2021 X01
 
@@ -1026,15 +1071,35 @@ SEX
 TODO: add subject overlap with 2018 X01 from Christina
 
 ```{r}
+htp_crossover <- read_csv(here::here("data", "FV_X7NHH41E_FV_5C7WPPHE_merged_sc_ds_updated.csv")) %>% 
+  filter(str_detect(SUBJECT_ID, "HTP"))
+
+length(unique(htp_crossover$SUBJECT_ID)) #537
+
 unique(htp_2021_x01_minimal$Sex)
 #M, F
 
-htp_dbgap_subject_consent <- htp_2021_x01_minimal %>% 
+htp_dbgap_subject_consent 
+
+htp_2021_x01_minimal %>% 
   select(SUBJECT_ID = participantExternalId, Sex) %>%
   distinct() %>% 
   mutate(CONSENT = 1,
          SEX = if_else(Sex == "Male", 1, 2)) %>% 
-  select(SUBJECT_ID, CONSENT, SEX)
+  select(SUBJECT_ID, CONSENT, SEX) %>% 
+  left_join(htp_crossover %>% select(SUBJECT_ID_crossover = SUBJECT_ID),
+            by = c("SUBJECT_ID" = "SUBJECT_ID_crossover"), keep = TRUE) %>% 
+  arrange(SUBJECT_ID) %>% 
+  mutate(overlap_with_phs002330 = case_when(
+    !is.na(SUBJECT_ID_crossover) ~ "Yes",
+    TRUE ~ "No"
+  )) %>% 
+  select(-SUBJECT_ID_crossover) %>% 
+  write_csv(here::here("output", "htp_2021_x01_dbGaP_SCwithOverlap.csv"))
+
+#total X01 participants = 511
+#438 overlap with crossover
+#73 don't overlap
 ```
 
 Subject-Sample Mapping:
@@ -1044,8 +1109,9 @@ SAMPLE_ID
 ```{r}
 htp_2021_x01_minimal %>% 
   select(SUBJECT_ID = participantExternalId, SAMPLE_ID = sampleExternalId) %>% 
-  distinct()
-  
+  distinct() %>% 
+  write_csv(here::here("output", "htp_2021_x01_dbGaP_SSM.csv"))
+
 ```
 
 
