@@ -19,6 +19,8 @@ This includes data from all 700 v3 participants
 Replace "NULL" and "Unknown" with `NA`
 (TODO: Find out why there is NULL and Unknown in family member ID cols)
 
+**TODO: Next time don't replace Unknown with NA in Race and Ethnicity**
+
 ```{r}
 vbr_participants <- read_delim(synGet("syn52138217")$path, "\t") %>% 
   mutate(across(where(is.character), ~na_if(., "NULL"))) %>% 
@@ -281,5 +283,18 @@ vbr_participants_conditions <- vbr_participants_harmonized_final %>%
 
 write_csv(vbr_participants_conditions,
           here::here("output", "vbr_participants_conditions.csv"))
+```
+
+## QA CHECKS
+
+Convert NAs in Race and Ethnicity back to Unknown
+Convert all other NAs to blanks when writing to csv
+
+```{r}
+vbr_participants_harmonized_final %>% 
+  mutate(Race = replace_na(Race, "Unknown"),
+         Ethnicity = replace_na(Ethnicity, "Unknown")) %>% 
+  write_csv(here::here("output", "vbr_participants_harmonized_final_na_2023-11-07.csv"),
+            na = "")
 ```
 

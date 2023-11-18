@@ -61,54 +61,6 @@ datafile_displaynames <- displayname_schemalabel_lookup %>%
   pull(display_name)
 
 
-# # # CREATE TEMPLATES FOR FINAL TABLE MUTATE
-# # 
-# participant_schemalabels %>% datapasta::vector_paste_vertical()
-# # then select vector & use Addins > Toggle Vector Quotes
-# 
-# condition_schemalabels %>% datapasta::vector_paste_vertical()
-# # then select vector & use Addins > Toggle Vector Quotes
-# 
-# biospecimen_schemalabels %>% datapasta::vector_paste_vertical()
-# # then select vector & use Addins > Toggle Vector Quotes
-# 
-# datafile_schemalabels %>% datapasta::vector_paste_vertical()
-# # then select vector & use Addins > Toggle Vector Quotes
-
-
-# # ADD FOLDERS TO SYNAPSE PROJECTS
-# 
-# synapse_projects <- read_sheet("https://docs.google.com/spreadsheets/d/1wNtmceBQwZu71gmQ1Z48yqNdV0zNu9WfZJ5IAhoRnMw/edit#gid=640167620",
-#                                sheet = "synapse_setup") %>%
-#   select(study_code, project_synid) %>%
-#   filter(study_code %in% c("ABC-DS", "HTP", "DSC", "X01-deSmith", "X01-Hakon",
-#                            "DS-Sleep", "BRI-DSR"))
-# 
-# 
-# create_folders <- function(input_project_id){
-#   synStore(Folder("2023-03_Study", parent = input_project_id))
-#   synStore(Folder("2023-03_Participant", parent = input_project_id))
-#   synStore(Folder("2023-03_Condition", parent = input_project_id))
-#   synStore(Folder("2023-03_Biospecimen", parent = input_project_id))
-#   synStore(Folder("2023-03_DataFile", parent = input_project_id))
-# }
-# 
-# # walk(synapse_projects$project_synid, create_folders)
-# 
-# get_folder_ids <- function(study){
-#   input_project_id <- synapse_projects %>% filter(study_code == study) %>% pull(project_synid)
-# 
-#   print(study)
-#   print(paste0("Study = ", synFindEntityId("2023-03_Study", parent = input_project_id)))
-#   print(paste0("Participant = ", synFindEntityId("2023-03_Participant", parent = input_project_id)))
-#   print(paste0("Condition = ", synFindEntityId("2023-03_Condition", parent = input_project_id)))
-#   print(paste0("Biospecimen = ", synFindEntityId("2023-03_Biospecimen", parent = input_project_id)))
-#   print(paste0("DataFile = ", synFindEntityId("2023-03_DataFile", parent = input_project_id)))
-# }
-# 
-# map(synapse_projects$study_code, get_folder_ids)
-
-
 
 
 

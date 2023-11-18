@@ -1115,15 +1115,85 @@ htp_2021_x01_minimal %>%
 ```
 
 
+## QA CHECK
+
+**2023-11-16** check Christina's old vs new sample IDs
+
+```{r}
+christina_ids <- read_csv(here::here("data", "htp_new_sample_ID_mappings_for_DS.csv"))
+
+matt_export <- read_delim(here::here("data", "HTP_DCC_VBR_BIOSPECIMENS_PL_corrected_3_DNATube_297A_2023-10-06.txt"), "\t")
+```
+
+```{r}
+christina_ids %>% 
+  left_join(matt_export %>% select(SampleID, SampleID_old),
+            by = c("OLD_SAMPLE_ID" = "SampleID_old")) %>% 
+  mutate(id_correct = if_else(NEW_SAMPLE_ID == SampleID, TRUE, FALSE)) %>% view()
+```
+two Old Sample IDs didn't have matches in Matt's export:
+
+HTP0710A_DNA    HTP0710A_PAXgeneWholeBloodDNA
+HTP0714A_DNA    HTP0714A_PAXgeneWholeBloodDNA
 
 
+**2023-11-16** Convert -1 volume to `NA`, then convert to "" during write_csv
+```{r}
+vbr_biospecimens_harmonized_20231005_update_volume <- read_csv(synGet("syn52599895")$path)
+
+vbr_biospecimens_harmonized_20231005_update_volume %>% 
+  mutate(Volume = na_if(Volume, -1)) %>%
+  write_csv(here::here("output", "vbr_biospecimens_harmonized_20231116.csv"),
+            na = "")
+
+```
 
 
+Checking HTP biospecimen report downloaded from QA portal
+Note that all Collections/Parents are also Samples in Matt's extract,
+but in QA Collections are separate from Samples
+
+```{r}
+qa_biospecimens <- read_tsv(here::here("data", "include-biospecimen-table-2023-11-17.tsv"))
+```
+
+```{r}
+# none of the Collection IDs are in Sample ID col
+n_distinct(qa_biospecimens$`Collection ID`) #1307
+length(setdiff(qa_biospecimens$`Collection ID`, qa_biospecimens$`Sample ID`)) #1307
+qa_biospecimens %>% filter(`Sample ID` %in% qa_biospecimens$`Collection ID`) #0
+
+# all Parent Samples are in Sample ID UNLESS they are also Collections
+n_distinct(qa_biospecimens$`Parent Sample ID`) #4399
+length(setdiff(qa_biospecimens$`Parent Sample ID`, qa_biospecimens$`Sample ID`)) #1307
+length(setdiff(qa_biospecimens$`Parent Sample ID`, qa_biospecimens$`Collection ID`)) #3092
+qa_biospecimens %>% filter(`Sample ID` %in% qa_biospecimens$`Parent Sample ID`)
+
+n_distinct(qa_biospecimens$`Sample ID`) #12233
+```
+
+```{r}
+# Unique Collection & Sample IDs from QA
+qa_samples_collections <- unique(c(qa_biospecimens$`Collection ID`, qa_biospecimens$`Sample ID`))
+length(qa_samples_collections) #13540
+
+# All of these are in harmonized data
+vbr_biospecimens_harmonized_20231005 %>% 
+  filter(sampleGlobalId %in% qa_samples_collections) %>% 
+  pull(sampleGlobalId) %>% n_distinct()
+#13540
+
+# these are not
+harmonized_samples_not_in_qa <- vbr_biospecimens_harmonized_20231005 %>% 
+  filter(!(sampleGlobalId %in% qa_samples_collections))
+#  pull(sampleGlobalId) %>% n_distinct() #975
+  
+```
 
 
-
-
-
+```{r}
+unique(harmonized_samples_not_in_qa$sampleType)
+```
 
 
 
