@@ -298,3 +298,30 @@ vbr_participants_harmonized_final %>%
             na = "")
 ```
 
+Count only families with >1 member
+```{r}
+vbr_participants_harmonized_final %>% select(`Family ID`) %>% 
+  count(`Family ID`) %>% 
+  arrange(desc(n)) %>% 
+  filter(n > 1)
+#164
+```
+
+Find families with >1 proband
+```{r}
+multiple_probands <- vbr_participants_harmonized_final %>% 
+  select(`Family ID`, `Family Relationship`) %>% 
+  filter(`Family Relationship` == "Proband") %>% 
+  count(`Family ID`) %>% 
+  distinct() %>% 
+  filter(n>1) %>% 
+  pull(`Family ID`)
+```
+
+```{r}
+vbr_participants_harmonized_final %>% 
+  filter(`Family ID` %in% multiple_probands) %>% 
+  arrange(`Family ID`) %>% 
+  write_csv(here::here("output", "htp_2_probands.csv"))
+```
+

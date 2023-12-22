@@ -134,8 +134,8 @@ portal_dump %>%
 
 # check if old vs new sample types match for the 27
 vbr_biospecimens %>% 
-    filter(SampleID %in% sample_without_globals_but_in_dewrangle) %>% 
-    select(SampleID, SampleID_old, SampleType, SampleType_old)
+  filter(SampleID %in% sample_without_globals_but_in_dewrangle) %>% 
+  select(SampleID, SampleID_old, SampleType, SampleType_old)
 
 
 ```
@@ -176,11 +176,11 @@ setdiff(mismatched_46_sal_samples$dewrangle_globals_by_SampleID,
 #are the Sample_global_id in dewrangle?
 htp_dewrangle_specimens %>% 
   filter(global_id %in% mismatched_46_sal_samples$Sample_global_id)
-  # the Sample_global_ids are associated with DNA_sal samples
+# the Sample_global_ids are associated with DNA_sal samples
 
 htp_dewrangle_specimens %>% 
   filter(global_id %in% mismatched_46_sal_samples$dewrangle_globals_by_SampleID)
-  # the dewrangle_globals are also all in dewrangle, associated with Saliva samples
+# the dewrangle_globals are also all in dewrangle, associated with Saliva samples
 
 # For reference, create table of dewrangle IDs
 mismatched_46_sal_in_dewrangle <- htp_dewrangle_specimens %>% 
@@ -197,11 +197,11 @@ setdiff(mismatched_46_sal_samples$dewrangle_globals_by_SampleID, portal_dump$`Sa
 
 portal_dump %>% 
   filter(`Sample ID` %in% mismatched_46_sal_samples$dewrangle_globals_by_SampleID)
-  # the Saliva samples in dewrangle are not in portal
+# the Saliva samples in dewrangle are not in portal
 
 portal_dump %>% 
   filter(`Sample ID` %in% mismatched_46_sal_samples$Sample_global_id)
-  # the DNA_sal samples from dewrangle are in the portal
+# the DNA_sal samples from dewrangle are in the portal
 
 
 ```
@@ -213,7 +213,7 @@ vbr_biospecimens_updated_participants <- vbr_biospecimens %>%
   left_join(htp_dewrangle_patients_UPDATED %>% select(descriptor, global_id),
             by = c("ParticipantExternalID" = "descriptor")) %>% 
   rename(Participant_global_id_updated = global_id)
-  #filter(Participant_global_id != global_id)
+#filter(Participant_global_id != global_id)
 ```
 
 
@@ -571,15 +571,15 @@ vbr_biospecimens_updated_samples_20230928 <- vbr_biospecimens_updated_samples %>
   rename(global_id_new_20230928 = global_id) %>% 
   #filter(is.na(global_id_new_20230928) & is.na(global_id_final)) #0
   #filter(!is.na(global_id_final) & !is.na(global_id_new_20230928))  %>%
-    #filter(global_id_final != global_id_new_20230928) #0
+  #filter(global_id_final != global_id_new_20230928) #0
   mutate(global_id_final_20230928 = case_when(
     is.na(global_id_final) ~ global_id_new_20230928,
     TRUE ~ global_id_final
   )) 
-  #filter(is.na(global_id_final_20230928))
-  #filter(!is.na(global_id_final)) %>% filter(global_id_final != global_id_final_20230928)
-  #filter(!is.na(global_id_new_20230928)) %>% filter(global_id_new_20230928 != global_id_final_20230928)
-  #filter(!is.na(Sample_global_id)) %>% filter(Sample_global_id != global_id_final_20230928)
+#filter(is.na(global_id_final_20230928))
+#filter(!is.na(global_id_final)) %>% filter(global_id_final != global_id_final_20230928)
+#filter(!is.na(global_id_new_20230928)) %>% filter(global_id_new_20230928 != global_id_final_20230928)
+#filter(!is.na(Sample_global_id)) %>% filter(Sample_global_id != global_id_final_20230928)
 ```
 
 Get Container Global IDs
@@ -620,8 +620,8 @@ vbr_biospecimens_updated_final <- vbr_biospecimens_updated_samples_20230928 %>%
               select(descriptor, global_id),
             by = c("CollectionID" = "descriptor")) %>% 
   rename(collectionGlobalId = global_id)
-  #filter(is.na(collectionGlobalId)) #0
-   
+#filter(is.na(collectionGlobalId)) #0
+
 
 ```
 
@@ -653,7 +653,7 @@ bs-k94dfqy39z
 CLean up NULL vs N/A
 
 ```{r}
- vbr_biospecimens_harmonized <- vbr_biospecimens_updated_final %>% 
+vbr_biospecimens_harmonized <- vbr_biospecimens_updated_final %>% 
   select(studyCode = StudyCode,
          participantExternalId = ParticipantExternalID,
          participantGlobalId = Participant_global_id_updated,
@@ -829,7 +829,7 @@ v1_datafiles %>%
               distinct(),
             by = c("sample_id" = "SampleID_old")) %>% 
   filter(global_id != Sample_global_id)
-  #filter(sample_id != SampleID) #0
+#filter(sample_id != SampleID) #0
 ```
 
 All globals & sample IDs in v1 manifest match vbr export 
@@ -869,7 +869,7 @@ v3_datafiles %>%
 
 Bring in New Sample IDs and Global IDs
 ```{r}
-v3_datafiles %>% 
+v3_datafiles_final <- v3_datafiles %>% 
   rename(SampleID_old = `Sample External ID`) %>%
   left_join(vbr_export_20231004 %>% 
               select(SampleID, SampleID_old, Sample_global_id, Participant_global_id) %>% 
@@ -896,10 +896,12 @@ v3_datafiles %>%
          `File Size` = Size,
          `File Size Unit`,
          `Access URL`,
-         `Publication DOI`) %>% 
-  write_csv(here::here("output",
-                       "FV_PJ79R4DY_FV_9Q2N4BTN_FV_7MVH1YCE_htp_datafile_manifest_w_crnic_files_v5.csv"))
-  
+         `Publication DOI`) 
+
+#%>% 
+write_csv(here::here("output",
+                     "FV_PJ79R4DY_FV_9Q2N4BTN_FV_7MVH1YCE_htp_datafile_manifest_w_crnic_files_v5.csv"))
+
 ```
 
 
@@ -932,7 +934,7 @@ Add File Global IDs
 v1_datafiles %>%
   left_join(htp_dewrangle_files_v1,
             by = c("file_id" = "descriptor")) %>% 
- #filter(is.na(file_global_id))
+  #filter(is.na(file_global_id))
   left_join(vbr_export_20231004 %>% 
               select(SampleID, Participant_global_id) %>% 
               distinct(),
@@ -965,7 +967,7 @@ v1_datafiles %>%
   write_csv(here::here("output",
                        "htp_v1_omics_datafiles_2023-10-10.csv"))
 
- 
+
 
 
 ```
@@ -1015,20 +1017,20 @@ htp_2021_x01_minimal <- vbr_biospecimens_harmonized_20231005 %>%
          analyte_type = case_when(
            str_detect(sampleType, "RNA") ~ "RNA",
            str_detect(sampleType, "DNA") ~ "DNA")
-         ) %>% 
+  ) %>% 
   select(studyCode, participantExternalId, participantGlobalId, 
          race = Race,
          gender = Sex, 
          ethnicity = Ethnicity, 
          affected_status = `Down Syndrome Status`,
-        `Family ID`, 
-        relationships, 
-        sampleExternalId, sampleGlobalId, containerExternalId, containerGlobalId, SAMPLE_ALIAS, SM_ID,
-        source_text_tissue_type, 
-        age_at_event_days = ageAtBiospecimenCollection,
-        source_text_tumor_descriptor,
-        composition = sampleType,
-        analyte_type)
+         `Family ID`, 
+         relationships, 
+         sampleExternalId, sampleGlobalId, containerExternalId, containerGlobalId, SAMPLE_ALIAS, SM_ID,
+         source_text_tissue_type, 
+         age_at_event_days = ageAtBiospecimenCollection,
+         source_text_tumor_descriptor,
+         composition = sampleType,
+         analyte_type)
 
 htp_2021_x01_minimal %>% 
   write_csv(here::here("output", "htp_2021_x01_minimal_with_Broad_ids.csv"))
@@ -1055,7 +1057,7 @@ vbr_participants_harmonized_final %>%
 
 #47 control singletons
 # 3 multi-families - Other is the "Proband"
-    
+
 #  write_csv(here::here("output", "htp_relationships_other.csv"))
 
 ```
@@ -1186,8 +1188,8 @@ vbr_biospecimens_harmonized_20231005 %>%
 # these are not
 harmonized_samples_not_in_qa <- vbr_biospecimens_harmonized_20231005 %>% 
   filter(!(sampleGlobalId %in% qa_samples_collections))
-#  pull(sampleGlobalId) %>% n_distinct() #975
-  
+#pull(sampleGlobalId) %>% n_distinct() #975
+
 ```
 
 
@@ -1195,20 +1197,147 @@ harmonized_samples_not_in_qa <- vbr_biospecimens_harmonized_20231005 %>%
 unique(harmonized_samples_not_in_qa$sampleType)
 ```
 
+All missing collections have containers
+```{r}
+harmonized_samples_not_in_qa %>% 
+  filter(is.na(containerExternalId))
+```
+
+975 unique Sample Global IDs
+```{r}
+length(unique(harmonized_samples_not_in_qa$sampleGlobalId))
+```
+
+```{r}
+harmonized_samples_not_in_qa %>% 
+  count(sampleType)
+```
+
+```{r}
+harmonized_samples_not_in_qa %>% 
+  write_csv(here::here("output", "harmonized_samples_collections_not_in_qa.csv"))
+```
 
 
+## 2023-12-08 More QA on Global IDs from Christina
+
+Christina can't find global IDs for a bunch of samples, including the 12 left accidently
+left out of KF-CHDALL
+
+There are "Tube" descriptors in dewrangle but not the non-Tube
+Possible that I forgot to replace the DNA_Paxgene descriptors?
+Check my harmonized data and Matt's export to make sure all SAmpleID_old are DNA-PAxgene
+```{r}
+htp_df_manifest_no_sample_globals <- read_csv(
+  here::here("data", "htp_df_manifest_no_sample_globals.csv")) %>% 
+  pull(`Sample External ID`)
+```
+
+All in Christina's list are in the final harmonized VBR biospecimens
+```{r}
+vbr_biospecimens_harmonized_20231005 %>% 
+  filter(sampleExternalId %in% htp_df_manifest_no_sample_globals) %>% 
+  pull(sampleExternalId) %>% unique() %>% length()
+```
+
+```{r}
+matt_latest_export <- read_tsv(synGet("syn52138216")$path)
+
+dewrangle_20231203 <- read_csv(here::here("data", "global-descriptors-htp-all.csv"))
+
+```
+
+```{r}
+matt_latest_export %>% 
+  filter(SampleID %in% htp_df_manifest_no_sample_globals) %>% 
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  filter(!is.na(SampleID_old)) %>% 
+  distinct() %>% 
+  left_join(dewrangle_20231203 %>% select(descriptor, global_id),
+            by = c("Sample_global_id" = "global_id"))
+
+#425, because this is "all" globals and there's an old & new descriptor for HTP0297A6_DNA
+#%>% filter(str_detect(descriptor, "297A"))
+
+#otherwise everything matches -> somehow I missed updating these descriptors?
+```
+
+Dewrangle input:
+
+Can't figure out how I missed updating these descriptors,
+but will go ahead and update now (filter out SampleID_old = 297A6_DNA)
+
+```{r}
+matt_latest_export %>% 
+  filter(SampleID %in% htp_df_manifest_no_sample_globals) %>% 
+  select(SampleID, SampleID_old, Sample_global_id) %>% 
+  filter(!is.na(SampleID_old)) %>% 
+  distinct() %>% 
+  left_join(dewrangle_20231203 %>% select(descriptor, global_id),
+            by = c("Sample_global_id" = "global_id")) %>% 
+  filter(SampleID_old != "HTP0297A6_DNA") %>% 
+  select(-descriptor, -SampleID_old, 
+         descriptor = SampleID, global_id = Sample_global_id) %>% 
+  mutate(fhir_resource_type = "Specimen", .after = descriptor) %>% 
+  write_csv(here::here("output", "dewrangle_input_2023-12-08.csv"))
+```
+Download "all" descriptors
+```{r}
+dewrangle_20231208 <- read_csv(here::here("data", 
+                                          "global-descriptors-htp-all-20231208.csv"))
+
+dewrangle_20231208 %>% 
+  filter(descriptor %in% htp_df_manifest_no_sample_globals)
+```
+
+## 2023-12-13 "Old" Sample External IDs showed up in Christina's X01 datafile manifest
+Looks like i forgot (or decided not to for some reason) update descriptors in dewrangle
+
+Get Christina's manifest and dewrangle with NEWEST (not all) descriptors
+```{r}
+christina_htp_x01_datafiles <- read_csv(synGet("syn53137966")$path)
+
+dewrangle_newest_20231214 <- read_csv(here::here("data", 
+                                                 "global-descriptors-htp-newest-20231214.csv"))
+
+```
+
+Make sure all descriptors are in dewrangle:
+```{r}
+christina_htp_x01_datafiles %>% 
+  select(`Sample Global ID`, `Sample External ID`) %>% 
+  left_join(dewrangle_newest_20231214 %>% select(global_id, descriptor),
+            by = c(`Sample Global ID` = "global_id")) %>% 
+  filter(is.na(descriptor)) #0
+
+```
+
+Figure out which are "old" IDs - from matt's export
+make this into dewrangle input
+```{r}
+x01_descriptor_changelog <- christina_htp_x01_datafiles %>% 
+  select(`Sample Global ID`, `Sample External ID`) %>% 
+  left_join(matt_latest_export %>% select(SampleID, SampleID_old, Sample_global_id) %>% distinct(),
+            by = c(`Sample Global ID` = "Sample_global_id")) %>% 
+  filter(`Sample External ID` != SampleID) %>% #365
+  #filter(`Sample External ID` != SampleID_old) #0
+  select(`Sample Global ID`, 
+         old_descriptor = `Sample External ID`,
+         new_descriptor = SampleID) %>% 
+  distinct() 
 
 
+x01_descriptor_changelog %>% write_csv(here::here("output",
+                                                  "x01_descriptor_changelog.csv"))
+```
 
 
-
-
-
-
-
-
-
-
+```{r}
+x01_descriptor_changelog %>% 
+  select(descriptor = new_descriptor, global_id = `Sample Global ID`) %>% 
+  mutate(fhir_resource_type = "Specimen", .after = descriptor) %>% 
+  write_csv(here::here("output", "dewrangle_input_20231214.csv"))
+```
 
 
 
