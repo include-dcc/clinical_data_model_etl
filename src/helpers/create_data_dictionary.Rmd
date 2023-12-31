@@ -1,0 +1,89 @@
+
+```{r}
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+
+gs4_deauth()
+```
+
+
+Get dataset
+
+```{r}
+clinical_data <- read_xlsx(synGet("syn53058587")$path)
+```
+
+
+In Excel, identify columns that should be numeric but aren't - list below:
+
+- Height (inches)
+- Weight (lbs)
+- BMI
+
+For the above cols, replace NA value: "missing"
+And convert to numeric
+
+Then select all numeric columns and get ranges (min-max)
+
+```{r}
+clinical_data_converted <- clinical_data %>% 
+  mutate(`Height (inches)` = as.numeric(na_if(`Height (inches)`, "missing")), 
+         `Weight (lbs)` = as.numeric(na_if(`Weight (lbs)`, "missing")), 
+         BMI = as.numeric(na_if(BMI, "missing")))
+
+num_entries <- clinical_data_converted %>% 
+  select(where(is.numeric))  %>% 
+  broom::tidy(summary()) %>% 
+  select(original_header = column, min, max) %>% 
+  unite(min, max, col = "values", sep = "-")
+
+```
+
+Get unique values for character columns
+
+```{r}
+clin_entries <- clinical_data_converted %>% 
+  select(where(is.character)) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "original_header",
+               values_to = "all_values") %>% 
+  group_by(original_header) %>% 
+  summarize(values = paste(unique(all_values), collapse = "; "))
+```
+
+
+Assemble dictionary
+
+```{r}
+all_entries <- bind_rows(num_entries, clin_entries)
+
+dict <- tibble("original_header" = colnames(clinical_data),
+       "working_header" = NA) %>% 
+  left_join(all_entries)
+```
+
+Write out and paste into Google sheet 
+(https://docs.google.com/spreadsheets/d/118amKSbrLRbmHrczFPhkLsxLKFu3GEr5goPMDvrlvxw)
+
+In Google sheet, add original NA value to numeric ranges where NA was replaced 
+(e.g. "36-69, missing")
+
+```{r}
+write_csv(dict, here::here("output", "dict.csv"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
