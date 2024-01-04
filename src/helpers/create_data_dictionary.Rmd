@@ -77,6 +77,18 @@ write_csv(dict, here::here("output", "dict.csv"))
 ```
 
 
+Get "long" version for ETL sheet
+
+```{r}
+conditions_long <- clinical_data_converted %>% 
+  select(where(is.character)) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "original_header",
+               values_to = "all_values") %>% 
+  group_by(original_header) %>% 
+  summarize(unique_values = unique(all_values)) %>% 
+  arrange(unique_values, .by_group = TRUE)
+```
 
 
 
