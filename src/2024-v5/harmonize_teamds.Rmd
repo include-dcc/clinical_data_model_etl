@@ -11,12 +11,10 @@ gs4_deauth()
 ```
 
 
-**Copy this file for each new dataset**
-
 Get dataset
 
 ```{r}
-clinical_data <- read_xlsx(synGet("syn53058587")$path)
+teamds_clinical_data <- read_xlsx(synGet("syn53058587")$path)
 ```
 
 
@@ -32,12 +30,12 @@ And convert to numeric
 Then select all numeric columns and get ranges (min-max)
 
 ```{r}
-clinical_data_converted <- clinical_data %>% 
+teamds_clinical_data_converted <- clinical_data %>% 
   mutate(`Height (inches)` = as.numeric(na_if(`Height (inches)`, "missing")), 
          `Weight (lbs)` = as.numeric(na_if(`Weight (lbs)`, "missing")), 
          BMI = as.numeric(na_if(BMI, "missing")))
 
-num_entries <- clinical_data_converted %>% 
+teamds_num_entries <- teamds_clinical_data_converted %>% 
   select(where(is.numeric))  %>% 
   broom::tidy(summary()) %>% 
   select(original_header = column, min, max) %>% 
@@ -48,7 +46,7 @@ num_entries <- clinical_data_converted %>%
 Get unique values for character columns
 
 ```{r}
-clin_entries <- clinical_data_converted %>% 
+teamds_clin_entries <- teamds_clinical_data_converted %>% 
   select(where(is.character)) %>% 
   pivot_longer(cols = everything(),
                names_to = "original_header",
@@ -61,9 +59,9 @@ clin_entries <- clinical_data_converted %>%
 Assemble dictionary
 
 ```{r}
-all_entries <- bind_rows(num_entries, clin_entries)
+teamds_all_entries <- bind_rows(teamds_num_entries, teamds_clin_entries)
 
-dict <- tibble("original_header" = colnames(clinical_data),
+teamds_dict <- tibble("original_header" = colnames(teamds_clinical_data),
        "working_header" = NA) %>% 
   left_join(all_entries)
 ```
@@ -75,23 +73,29 @@ In Google sheet, add original NA value to numeric ranges where NA was replaced
 (e.g. "36-69, missing")
 
 ```{r}
-write_csv(dict, here::here("output", "dict.csv"))
+write_csv(teamds_dict, here::here("output", "teamds_dict.csv"))
 ```
 
 
 Get "long" version for ETL sheet
 
 ```{r}
-conditions_long <- clinical_data_converted %>% 
+teamds_conditions_long <- teamds_clinical_data_converted %>% 
   select(where(is.character)) %>% 
   pivot_longer(cols = everything(),
                names_to = "original_header",
                values_to = "all_values") %>% 
   group_by(original_header) %>% 
   summarize(unique_values = unique(all_values)) %>% 
-  arrange(unique_values, .by_group = TRUE)
+  arrange(unique_values, .by_group = TRUE) %>%
+  ungroup() %>% 
+  filter(unique_values != "missing" & unique_values != "No")
 ```
 
+```{r}
+write_csv(teamds_conditions_long, 
+          here::here("output", "teamds_conditions_long.csv"))
+```
 
 
 
