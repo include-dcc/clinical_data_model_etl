@@ -10,6 +10,7 @@ synLogin()
 gs4_deauth()
 ```
 
+## MAKE DICTIONARY
 
 Get dataset
 
@@ -20,9 +21,9 @@ teamds_clinical_data <- read_xlsx(synGet("syn53058587")$path)
 
 In Excel, identify columns that should be numeric but aren't - list below:
 
-- Height (inches)
-- Weight (lbs)
-- BMI
+- height
+- weight
+- bmi
 
 For the above cols, replace NA value: "missing"
 And convert to numeric
@@ -30,10 +31,10 @@ And convert to numeric
 Then select all numeric columns and get ranges (min-max)
 
 ```{r}
-teamds_clinical_data_converted <- clinical_data %>% 
-  mutate(`Height (inches)` = as.numeric(na_if(`Height (inches)`, "missing")), 
-         `Weight (lbs)` = as.numeric(na_if(`Weight (lbs)`, "missing")), 
-         BMI = as.numeric(na_if(BMI, "missing")))
+teamds_clinical_data_converted <- teamds_clinical_data %>% 
+  mutate(height = as.numeric(na_if(height, "missing")), 
+         weight = as.numeric(na_if(weight, "missing")), 
+         bmi = as.numeric(na_if(bmi, "missing")))
 
 teamds_num_entries <- teamds_clinical_data_converted %>% 
   select(where(is.numeric))  %>% 
@@ -63,7 +64,7 @@ teamds_all_entries <- bind_rows(teamds_num_entries, teamds_clin_entries)
 
 teamds_dict <- tibble("original_header" = colnames(teamds_clinical_data),
        "working_header" = NA) %>% 
-  left_join(all_entries)
+  left_join(teamds_all_entries)
 ```
 
 Write out and paste into Google sheet 
@@ -96,6 +97,9 @@ teamds_conditions_long <- teamds_clinical_data_converted %>%
 write_csv(teamds_conditions_long, 
           here::here("output", "teamds_conditions_long.csv"))
 ```
+
+
+
 
 
 
