@@ -1,0 +1,182 @@
+---
+title: "DS-Connect prep unharmonized data"
+---
+
+```{r}
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+library(janitor)
+
+synLogin()
+
+gs4_deauth()
+```
+
+
+### 1. Participant IDs
+
+- quick check in Excel - any weird looking or missing IDs?
+- check for dupes
+- compare participants in both datasets (demographic vs IHQ) - report if differences
+- report total N unique across dataset
+- compare with v3 - report added/deleted
+- add dewrangle IDs/get IDs for new participants
+- assemble mapping & guids file: DSC ID + de-ID ID + global ID + guid
+
+Any issues, record in Cohort-specific QA sheet (https://docs.google.com/spreadsheets/d/1uxFOl-SDpLRPaeIkfpqnksKMyeoK9pNqBDC33OEoBIs/edit#gid=190853806) 
+and follow up with contributor
+
+===============================================================================
+
+Get data
+- Filter out Acknowledgments line for now (will delete in the dataset for unharmonized data)
+```{r}
+dsc_demographic <- read_csv(synGet("syn26445516")$path) %>% 
+  filter(!str_detect(patient_id, "ACK"))
+dsc_ihq <- read_csv(synGet("syn26445517")$path) %>% 
+  filter(!str_detect(patient_id, "ACK"))
+
+#v3 harmonized data
+v3_dsc_harmonized <- read_csv(synGet("syn51216460")$path) %>% 
+  filter(`Study Code` == "DSC")
+```
+
+
+Isolate IDs
+```{r}
+dsc_demo_ids <- dsc_demographic %>% select(patient_id, patient_id_deid, guid)
+dsc_ihq_ids <- dsc_ihq %>% select(patient_id, patient_id_deid, guid)
+
+v3_dsc_ids <- v3_dsc_harmonized %>% 
+  select(participant_global_id = `Participant Global ID`, 
+         participant_external_id = `Participant External ID`)
+```
+
+
+Check for dupes
+- Patient 5458 has 2 rows in demo & ihq that appear to be identical
+- There are 12 duplicate GUIDs (not including 5458)
+- 181 rows where GUID is blank or #ERROR#
+```{r}
+get_dupes(dsc_demo_ids, patient_id) #5458
+get_dupes(dsc_ihq_ids, patient_id)
+
+get_dupes(dsc_demo_ids, patient_id_deid)
+get_dupes(dsc_ihq_ids, patient_id_deid)
+
+dsc_demo_ids %>% filter(str_detect(guid, "NDAR")) %>% get_dupes(guid)
+dsc_ihq_ids %>% filter(str_detect(guid, "NDAR")) %>% get_dupes(guid)
+
+dsc_demo_ids %>% filter(!str_detect(guid, "NDAR") | is.na(guid)) #181
+
+get_dupes(v3_dsc_ids, participant_global_id) 
+```
+
+Compare IDs between demo/ihq and v3
+- no differences in demo/ihq
+```{r}
+setdiff(dsc_demo_ids$patient_id, dsc_ihq_ids$patient_id)
+setdiff(dsc_ihq_ids$patient_id, dsc_demo_ids$patient_id)
+```
+
+
+Set up table of unique IDs 
+(filters out duplicate #5458 rows for now - delete in data later)
+```{r}
+dsc_id_guid_map <- dsc_demo_ids %>% unique()
+```
+
+Check for patient_id_deid that are also in patient_id 
+(would not have converse b/c none of the patient_id_deid have 4 digits)
+```{r}
+overlap <- dsc_id_guid_map %>% 
+  filter(patient_id_deid %in% dsc_id_guid_map$patient_id) %>% 
+  pull(patient_id_deid)
+
+dsc_id_guid_map %>% 
+  filter(patient_id %in% overlap)
+#92
+#NOOOO
+```
+
+
+
+Compare with v3
+- 9 patients deleted from v3
+- 159 added
+- N unique in v5: 3634
+
+```{r}
+#deleted from v3 (use mapping file with unique IDs)
+setdiff(v3_dsc_ids$participant_external_id, dsc_id_guid_map$patient_id) #9
+
+#added to latest export
+length(setdiff(dsc_id_guid_map$patient_id, v3_dsc_ids$participant_external_id))
+
+n_distinct(dsc_id_guid_map$patient_id) #3634
+```
+
+
+Add existing Global IDs
+```{r}
+dsc_id_guid_map <- dsc_id_guid_map %>% 
+  left_join(v3_dsc_ids, by = c("patient_id" = "participant_external_id"))
+```
+
+Check v3 against global IDs from dewrangle, just in case
+Download "newest descriptor" from dewrangle.com to "data" folder
+```{r}
+dsc_dewrangle_output <- read_csv(here::here("data", "global-descriptors-ds-connect.csv"))
+
+setdiff(v3_dsc_ids$participant_global_id, dsc_dewrangle_output$globalId) #0
+setdiff(dsc_dewrangle_output$globalId, v3_dsc_ids$participant_global_id)
+#just the Study ID
+```
+
+Prepare dewrangle input
+1. upload ORIGINAL patient_id for 159 new participants
+(so every participant has original ID associated with global ID)
+2. upload global_id + patient_id_deid for all participants
+(so every participant has original ID as old descriptor and patient_id_deid
+as new descriptor) -> use new descriptors going forward
+```{r}
+dsc_dewrangle_input_1 <- dsc_id_guid_map %>% 
+  filter(is.na(participant_global_id)) %>% 
+  select(descriptor = patient)
+
+```
+
+##TODO: Might need to go back and re-generate patient_id_deid before further dewrangling
+For now, upload dsc_id_guid_map to Synapse as DRAFT
+```{r}
+dsc_id_guid_map %>% 
+  write_csv(here::here("output", "dsc_guids_DRAFT_2024-02-28.csv"))
+```
+
+UGH also duplicate GUIDS!!
+```{r}
+dsc_ihq_ids %>% filter(str_detect(guid, "NDAR")) %>% get_dupes(guid)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,6 +1,5 @@
 ---
 title: "Hakonarson VBR v4"
-output: html_notebook
 ---
 
 ```{r setup, include=FALSE}
@@ -21,6 +20,8 @@ Get VBR files
 
 ```{r}
 hakon_vbr <- read_csv(synGet("syn52504777")$path)
+hakon_aliquot_map <- read_csv(synGet("syn53355321")$path)
+
 
 hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
 hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
@@ -31,7 +32,6 @@ hakon_clinical_all <- hakon_clin_dna %>%
   select(-(`Days to First Event`:`Tumor resection extent`))
 
 ```
-
 
 Confirm all samples have clinical data
 ```{r}
@@ -44,7 +44,36 @@ setdiff(hakon_clinical_all$`Participant ID`, hakon_vbr$`Participant External ID 
 
 hakon_vbr %>% 
   filter(`Participant External ID orig` %in% hakon_clinical_all$`Participant ID`)
+
 ```
+
+1/19/24: Adding in new aliquot mapping
+
+Check aliquot mapping vs biospecimen catalog
+```{r}
+n_distinct(hakon_aliquot_map$participant_id) #1140
+
+no_aliquot_map <- setdiff(hakon_vbr$`Participant External ID orig`, hakon_aliquot_map$participant_id)
+```
+
+There are 12 Participants that don't have aliquot mappings
+```{r}
+hakon_vbr %>% 
+  left_join(hakon_aliquot_map,
+            by = c("Participant External ID orig" = "participant_id")) %>% 
+  filter(is.na(encrypted_container_id)) %>% 
+  pull(`Participant External ID orig`) %>% unique()
+```
+
+Get clinical data for those Participants:
+```{r}
+hakon_clinical_all %>% 
+  filter(`Participant ID` %in% no_aliquot_map) %>% 
+  select(`Participant ID`, `Aliquot ID`, `Sample Composition`, `Analyte Type`) %>% 
+  write_csv(here::here("output", "hakon_no_aliquot_mapping.csv"))
+```
+
+
 
 Excel
 - make sure any blank Volume Unit or Concentration Unit doesn't also have a number
@@ -100,9 +129,6 @@ hakon_datafiles_v4 %>%
             by = c("Container External ID" = "Container ID")) %>% view()
 
 ```
-
-
-TODO: Aliquot IDs != Container IDs!! :(
 
 
 
