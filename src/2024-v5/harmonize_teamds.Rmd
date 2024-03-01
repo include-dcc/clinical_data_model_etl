@@ -99,13 +99,16 @@ write_csv(teamds_conditions_long,
 ```
 
 
+## HARMONIZE PARTICIPANT
+
+Checks
+
+```{r}
+# N unique participants
+length(unique(teamds_clinical_data_converted$studyid)) #122
+
+# duplicate ids?
+teamds_clinical_data_converted %>% janitor::get_dupes(studyid) #0
 
 
-
-
-
-
-
-
-
-
+```

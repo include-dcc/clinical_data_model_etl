@@ -74,7 +74,6 @@ hakon_clinical_all %>%
 ```
 
 
-
 Excel
 - make sure any blank Volume Unit or Concentration Unit doesn't also have a number
 - if Sample Availability = No then Container Availability should also = No
