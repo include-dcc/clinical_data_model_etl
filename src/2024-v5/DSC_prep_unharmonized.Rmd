@@ -31,16 +31,45 @@ and follow up with contributor
 ===============================================================================
 
 Get data
-- Filter out Acknowledgments line for now (will delete in the dataset for unharmonized data)
 ```{r}
-dsc_demographic <- read_csv(synGet("syn26445516")$path) %>% 
-  filter(!str_detect(patient_id, "ACK"))
-dsc_ihq <- read_csv(synGet("syn26445517")$path) %>% 
-  filter(!str_detect(patient_id, "ACK"))
+dsc_demographic <- read_csv(synGet("syn26445516")$path)
+dsc_ihq <- read_csv(synGet("syn26445517")$path)
 
 #v3 harmonized data
 v3_dsc_harmonized <- read_csv(synGet("syn51216460")$path) %>% 
   filter(`Study Code` == "DSC")
+```
+
+##**IMPORTANT**
+
+- deid IDs from Invitae overlap with original patient_ids
+- Fix by adding "DSC" in front of all deid IDs (also parent_id_deid in IHQ)
+- Filter out Acknowledgments line; remove GUIDs for DMC version
+- Then re-upload to Synapse as new version of source data
+(versions with GUIDs should be a separate file with restricted access)
+- Also add to data dictionary (with Excel) and reupload to Synapse
+- Be sure to send these new deid IDs (and the global IDs) to Invitae replacement
+
+```{r}
+dsc_demographic <- dsc_demographic %>%
+  filter(!str_detect(patient_id, "ACK")) %>% 
+  mutate(patient_id_deid = paste0("DSC", patient_id_deid))
+
+dsc_ihq <- dsc_ihq %>% 
+  filter(!str_detect(patient_id, "ACK")) %>% 
+  mutate(patient_id_deid = paste0("DSC", patient_id_deid)) %>%
+  mutate(parent_id_deid = case_when(!is.na(parent_id_deid) ~ paste0("DSC", parent_id_deid),
+                                    TRUE ~ NA))
+
+# write out without guids; leave in for rest of this notebook
+dsc_demographic %>%
+  select(-guid) %>% 
+  write_csv(here::here("output",                     "dsconnect_demographics_to_dcc_20240226_PLdeid_noguid.csv"))
+
+dsc_ihq %>%
+  select(-guid) %>% 
+  write_csv(here::here("output",
+                       "dsconnect_ihq_survey_20240226_PLdeid_noguid.csv"))
 ```
 
 
@@ -53,7 +82,6 @@ v3_dsc_ids <- v3_dsc_harmonized %>%
   select(participant_global_id = `Participant Global ID`, 
          participant_external_id = `Participant External ID`)
 ```
-
 
 Check for dupes
 - Patient 5458 has 2 rows in demo & ihq that appear to be identical
@@ -68,17 +96,21 @@ get_dupes(dsc_ihq_ids, patient_id_deid)
 
 dsc_demo_ids %>% filter(str_detect(guid, "NDAR")) %>% get_dupes(guid)
 dsc_ihq_ids %>% filter(str_detect(guid, "NDAR")) %>% get_dupes(guid)
+# 7 but one is pt 5458, so 6
 
 dsc_demo_ids %>% filter(!str_detect(guid, "NDAR") | is.na(guid)) #181
 
-get_dupes(v3_dsc_ids, participant_global_id) 
+get_dupes(v3_dsc_ids, participant_global_id) #0
 ```
 
 Compare IDs between demo/ihq and v3
-- no differences in demo/ihq
+- no differences in demo/ihq for original or de-id IDs
 ```{r}
 setdiff(dsc_demo_ids$patient_id, dsc_ihq_ids$patient_id)
 setdiff(dsc_ihq_ids$patient_id, dsc_demo_ids$patient_id)
+
+setdiff(dsc_demo_ids$patient_id_deid, dsc_ihq_ids$patient_id_deid)
+setdiff(dsc_ihq_ids$patient_id_deid, dsc_demo_ids$patient_id_deid)
 ```
 
 
@@ -87,21 +119,6 @@ Set up table of unique IDs
 ```{r}
 dsc_id_guid_map <- dsc_demo_ids %>% unique()
 ```
-
-Check for patient_id_deid that are also in patient_id 
-(would not have converse b/c none of the patient_id_deid have 4 digits)
-```{r}
-overlap <- dsc_id_guid_map %>% 
-  filter(patient_id_deid %in% dsc_id_guid_map$patient_id) %>% 
-  pull(patient_id_deid)
-
-dsc_id_guid_map %>% 
-  filter(patient_id %in% overlap)
-#92
-#NOOOO
-```
-
-
 
 Compare with v3
 - 9 patients deleted from v3
@@ -132,7 +149,7 @@ dsc_dewrangle_output <- read_csv(here::here("data", "global-descriptors-ds-conne
 
 setdiff(v3_dsc_ids$participant_global_id, dsc_dewrangle_output$globalId) #0
 setdiff(dsc_dewrangle_output$globalId, v3_dsc_ids$participant_global_id)
-#just the Study ID
+#just the Study ID sd-ickkyna4w9
 ```
 
 Prepare dewrangle input
@@ -142,24 +159,67 @@ Prepare dewrangle input
 (so every participant has original ID as old descriptor and patient_id_deid
 as new descriptor) -> use new descriptors going forward
 ```{r}
-dsc_dewrangle_input_1 <- dsc_id_guid_map %>% 
-  filter(is.na(participant_global_id)) %>% 
-  select(descriptor = patient)
-
-```
-
-##TODO: Might need to go back and re-generate patient_id_deid before further dewrangling
-For now, upload dsc_id_guid_map to Synapse as DRAFT
-```{r}
 dsc_id_guid_map %>% 
-  write_csv(here::here("output", "dsc_guids_DRAFT_2024-02-28.csv"))
+  filter(is.na(participant_global_id)) %>% 
+  select(descriptor = patient_id) %>% 
+  mutate(fhirResourceType = "Patient") %>% 
+  write_csv(here::here("output",
+                       "dsc_dewrangle_input_original.csv"))
+
 ```
 
-UGH also duplicate GUIDS!!
+
+Add new Global IDs
+generate new dewrangle input with patient_id_deid as descriptor
 ```{r}
-dsc_ihq_ids %>% filter(str_detect(guid, "NDAR")) %>% get_dupes(guid)
+dsc_dewrangle_output_v2 <- read_csv(here::here("data", "global-descriptors-ds-connect.csv"))
 
+dsc_id_guid_map %>%
+  left_join(dsc_dewrangle_output_v2 %>% select(descriptor, globalId),
+            by = c("patient_id" = "descriptor")) %>% 
+  mutate(fhirResourceType = "Patient") %>% 
+  select(descriptor = patient_id_deid, fhirResourceType, globalId) %>% 
+  write_csv(here::here("output",
+                       "dsc_dewrangle_input_deid.csv"))
+  
 ```
+
+Check new vs old descriptors:
+```{r}
+dsc_dewrangle_output_all <- read_csv(here::here("data", "global-descriptors-ds-connect-all.csv")) %>% 
+  filter(fhirResourceType == "Patient")
+
+old_descriptors <- dsc_dewrangle_output_all %>% 
+  filter(!str_detect(descriptor, "DSC")) %>% 
+  select(descriptor, globalId)
+#3484+159=3643
+
+new_descriptors <- dsc_dewrangle_output_all %>% 
+  filter(str_detect(descriptor, "DSC")) %>% 
+  select(descriptor, globalId) #3634
+
+setdiff(old_descriptors$globalId, new_descriptors$globalId) #9
+setdiff(new_descriptors$globalId, old_descriptors$globalId) #0
+```
+
+
+Finalize DSC ID map:
+```{r}
+dsc_id_guid_map_complete <- dsc_id_guid_map %>%
+  left_join(dsc_dewrangle_output_v2 %>% select(descriptor, globalId),
+            by = c("patient_id" = "descriptor")) %>% 
+  select(-participant_global_id) %>% 
+  select(participant_external_id = patient_id_deid,
+         guid, participant_global_id = globalId)
+```
+
+
+Write out & upload to Synapse
+```{r}
+dsc_id_guid_map_complete %>% 
+  write_csv(here::here("output", "dsc_guids_2024-03-04.csv"))
+```
+
 
 
 

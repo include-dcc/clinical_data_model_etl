@@ -15,34 +15,26 @@ gs4_deauth()
 ```
 
 Get GUIDs:
-**NOTE** DSC GUIDs file is DRAFT for now - need new deid IDs in order to get 
-new global IDS
-Per Joaquin, need to include ALL participants from cohort, even if they don't
-have GUIDs
+**NOTE** DSC GUIDs file is complete now - 
+use this, not v3 all_cohorts_participant as some participants have been added/deleted
+- Per Joaquin, need to include ALL participants from cohort, even if they don't
+have GUIDs -> use v3 vall_cohorts_participant for HTP
 ```{r}
+#replace #Error# with NA
+dsc_guids <- read_csv(synGet("syn53708715")$path) %>%
+  mutate(guid = na_if(guid, "#ERROR#"),
+         study_code = "DSC") %>% 
+  select(guid, study_code, participant_global_id)
+
 htp_guids <- read_xlsx(synGet("syn53707355")$path) %>% 
   select(participant_external_id = `Stripped Lab ID`,
          guid = GUID)
-
-dsc_guids <- read_csv(synGet("syn53708715")$path) %>%
-  mutate(patient_id = as.character(patient_id)) %>% 
-  select(participant_external_id = patient_id, guid)
-
-#dsc participants from v3
-dsc_all_participants <- read_csv(synGet("syn51216460")$path) %>% 
-  filter(`Study Code` == "DSC") %>% 
-  select(study_code = `Study Code`,
-         participant_global_id = `Participant Global ID`,
-         participant_external_id = `Participant External ID`)
 
 #htp participants from v4 (includes VBR)
 htp_all_participants <- read_csv(synGet("syn52399152")$path) %>% 
   select(study_code = `Study Code`,
          participant_global_id = `Participant Global ID`,
          participant_external_id = `Participant External ID`)
-
-htp_dsc_all_participants <- bind_rows(dsc_all_participants,
-                                      htp_all_participants)
 ```
 
 Check for dupes:
@@ -51,32 +43,29 @@ get_dupes(htp_guids, guid) #0
 get_dupes(htp_guids, participant_external_id) #0
 
 get_dupes(dsc_guids, guid) %>%
-  filter(str_detect(guid, "NDAR"))
+  filter(str_detect(guid, "NDAR")) #6
 ```
 
-Add GUIDs
-replace #Error# with NA
+Add GUIDs to HTP
 ```{r}
-htp_dsc_guids <- bind_rows(htp_guids, dsc_guids)
-
-htp_dsc_guid_mapping <- htp_dsc_all_participants %>% 
-  left_join(htp_dsc_guids) %>% 
+htp_dsc_guids <- htp_all_participants %>% 
+  left_join(htp_guids) %>% 
   select(guid, study_code, participant_global_id) %>% 
-  mutate(guid = na_if(guid, "#ERROR#"))
+  bind_rows(dsc_guids)
 ```
 
 Counts:
 - Total HTP participants: 1055
-- Total DSC participants: 3484
+- Total DSC participants: 3634
 - HTP participants missing GUIDs: 565
-- DSC participants missing GUIDs: 68
+- DSC participants missing GUIDs: 181
 - 52 GUIDs in both DSC and HTP
 
 ```{r}
-htp_dsc_guid_mapping %>% 
-  filter(study_code == "DSC" & is.na(guid))
+htp_dsc_guids %>% 
+  filter(study_code == "HTP" & is.na(guid))
 
-htp_dsc_guid_mapping %>%
+htp_dsc_guids %>%
   filter(!is.na(guid)) %>% 
   group_by(guid) %>% 
   filter(min(study_code) == "DSC" & max(study_code) == "HTP") %>% 
@@ -86,12 +75,11 @@ htp_dsc_guid_mapping %>%
 
 Write out & upload to Synapse
 ```{r}
-htp_dsc_guid_mapping %>% 
-  write_csv(here::here("output", "htp_dsc_guids_DRAFT_2024-02-29.csv"))
+htp_dsc_guids %>% 
+  arrange(guid) %>% 
+  write_csv(here::here("output", "htp_dsc_guids_2024-03-04.csv"))
 ```
 
-
-TODO: Delete 9 participants from DSC v3; add 159 new participants who don't have global IDs yet
 
 
 
