@@ -6,7 +6,7 @@ library(googlesheets4)
 synLogin()
 
 # deactivate need for Google Auth since these sheets are accessible with link
-gs4_deauth()
+# gs4_deauth()
 
 # read in sheets
 condition_codes_v3 <- read_sheet(

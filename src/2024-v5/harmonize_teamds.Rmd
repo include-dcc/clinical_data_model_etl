@@ -18,23 +18,25 @@ Get dataset
 teamds_clinical_data <- read_xlsx(synGet("syn53058587")$path)
 ```
 
-
 In Excel, identify columns that should be numeric but aren't - list below:
 
 - height
 - weight
 - bmi
 
-For the above cols, replace NA value: "missing"
+For the above cols, replace "missing" with `NA`
 And convert to numeric
 
 Then select all numeric columns and get ranges (min-max)
+
+Also convert `studyid` to character to avoid future errors
 
 ```{r}
 teamds_clinical_data_converted <- teamds_clinical_data %>% 
   mutate(height = as.numeric(na_if(height, "missing")), 
          weight = as.numeric(na_if(weight, "missing")), 
-         bmi = as.numeric(na_if(bmi, "missing")))
+         bmi = as.numeric(na_if(bmi, "missing")),
+         studyid = as.character(studyid))
 
 teamds_num_entries <- teamds_clinical_data_converted %>% 
   select(where(is.numeric))  %>% 
@@ -99,16 +101,100 @@ write_csv(teamds_conditions_long,
 ```
 
 
-## HARMONIZE PARTICIPANT
+## PRE-HARMONIZATION CHECKS
 
 Checks
-
 ```{r}
 # N unique participants
 length(unique(teamds_clinical_data_converted$studyid)) #122
 
 # duplicate ids?
 teamds_clinical_data_converted %>% janitor::get_dupes(studyid) #0
+```
 
+Generate Global IDs
+```{r}
+teamds_clinical_data_converted %>%
+  select(descriptor = studyid) %>% 
+  mutate(fhirResourceType = "Patient") %>% 
+  write_csv(here::here("output", "teamds_dewrangle_input.csv"))
+```
+
+
+Add global IDs
+```{r}
+teamds_global_ids <- read_csv(here::here("output", 
+                                         "global-descriptors-team-ds.csv")) %>% 
+  select(globalId, descriptor)
+
+teamds_clinical_data_converted <- teamds_clinical_data_converted %>% 
+  left_join(teamds_global_ids,
+            by = c("studyid" = "descriptor")) %>% 
+  select(globalId, everything()) 
+
+#%>% filter(is.na(globalId))
+```
+
+## HARMONIZE PARTICIPANT
+
+Participant ID, Sex, Ethnicity - rename, no other changes needed
+```{r}
+teamds_participant <- teamds_clinical_data_converted %>% 
+  rename(participantGlobalId = globalId,
+         participantExternalId = studyid,
+         sex = gender)
+```
+
+Race
+
+```{r}
+teamds_etl_plan <- etl_to_linkml_plan %>% 
+  filter(study == "TEAM-DS",
+         model_slot == "race") %>% 
+  select(model_slot, model_enum_label, original_value) %>% 
+  unnest(original_value)
+
+mtor_values <- teamds_etl_plan %>% 
+  filter(model_enum_label == "More than one race") %>% 
+  pull(original_value)
+
+teamds_participant <- teamds_participant %>% 
+  left_join(teamds_etl_plan %>% filter(model_slot == "race") %>% 
+              select(model_enum_label, original_value), 
+            by = c("race" = "original_value")) %>% 
+  rename(race_harmonized = model_enum_label) %>%
+  relocate(race_harmonized, .after = race) %>% 
+  mutate(race_harmonized = case_when(race_other %in% mtor_values ~ "More than one race",
+                                     TRUE ~ race_harmonized)) %>% 
+  select(-race) %>% rename(race = race_harmonized)
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
