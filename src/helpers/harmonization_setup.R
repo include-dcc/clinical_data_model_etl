@@ -7,6 +7,7 @@ synLogin()
 
 # deactivate need for Google Auth since these sheets are accessible with link
 # gs4_deauth()
+gs4_auth() #select option 2 - my email
 
 # read in sheets
 condition_codes_v3 <- read_sheet(

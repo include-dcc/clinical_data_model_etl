@@ -171,10 +171,51 @@ teamds_participant <- teamds_participant %>%
 ```
 
 
+Family ID: 101061 / 101062 & 101088 / 101089 sibling pairs - use min(Participant ID) as family ID
+
+```{r}
+teamds_participant <- teamds_participant %>% 
+  mutate(familyId = case_when(
+    participantExternalId %in% c("101061", "101062") ~ "101061",
+    participantExternalId %in% c("101088", "101089") ~ "101088"),
+    .after = participantExternalId) %>% 
+  mutate(familyType = case_when(
+    familyId %in% c("101061", "101088") ~ "Other",
+    TRUE ~ "Proband-only"), .after = familyId) %>% 
+  mutate(fatherId = NA, motherId = NA, 
+         siblingId = case_when(
+           participantExternalId == "101061" ~ "101062",
+           participantExternalId == "101062" ~ "101061",
+           participantExternalId == "101088" ~ "101089",
+           participantExternalId == "101089" ~ "101088"),
+         otherFamilyMemberId = NA,
+         familyRelationship = "Proband",
+         .after = familyType)
+```
 
 
+Final Participant:
+```{r}
+teamds_participant_harmonized <- teamds_participant %>% 
+  select(participantGlobalId, participantExternalId, familyId, familyType,
+         fatherId, motherId, siblingId, otherFamilyMemberId, familyRelationship,
+         sex, race, ethnicity, ageAtFirstPatientEngagement = age) %>% 
+  mutate(studyCode = "TEAM-DS",
+         downSyndromeStatus = "T21", 
+         ageAtFirstPatientEngagement = round(365.25 * ageAtFirstPatientEngagement, 0),
+         firstPatientEngagementEvent = "Enrollment",
+         outcomesVitalStatus = NA,
+         ageAtLastVitalStatus = NA) %>% 
+  select(all_of(participant_schemalabels)) %>% 
+  setNames(participant_displaynames)
 
+teamds_participant_harmonized %>% 
+  write_csv(here::here("output", "teamds_participant_harmonized_DRAFT_2024-04-10.csv"))
+```
 
+## CONDITIONS
+
+Note Yes/No columns vs. "Type" cols
 
 
 
