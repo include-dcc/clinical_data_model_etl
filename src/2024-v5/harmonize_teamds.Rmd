@@ -213,6 +213,20 @@ teamds_participant_harmonized %>%
   write_csv(here::here("output", "teamds_participant_harmonized_DRAFT_2024-04-10.csv"))
 ```
 
+**Trying to get summary stats, this needs work**
+
+```{r}
+teamds_summary <- teamds_participant_harmonized %>% 
+  mutate(across(c(`Family Type`, `Family Relationship`, Sex, Race,
+                  Ethnicity, `Down Syndrome Status`, 
+                  `First Patient Engagement Event`, `Outcomes Vital Status`),
+                as.factor)) %>% 
+  skimr::skim_without_charts() 
+
+write_csv(teamds_summary, here::here("output", "teamds_summary.csv"))
+```
+
+
 ## CONDITIONS
 
 Note Yes/No columns vs. "Type" cols
