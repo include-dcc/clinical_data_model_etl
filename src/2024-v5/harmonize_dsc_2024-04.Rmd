@@ -21,11 +21,11 @@ dsc_ihq <- read_csv(synGet("syn26445517")$path)
 ## CHECKS
 
 ```{r}
-n_unique(dsc_demographic$patient_id) #3634
-n_unique(dsc_ihq$patient_id) #3634
+n_distinct(dsc_demographic$patient_id) #3634
+n_distinct(dsc_ihq$patient_id) #3634
 
-n_unique(dsc_demographic$patient_id_deid) #3634
-n_unique(dsc_ihq$patient_id_deid) #3634
+n_distinct(dsc_demographic$patient_id_deid) #3634
+n_distinct(dsc_ihq$patient_id_deid) #3634
 
 janitor::get_dupes(dsc_demographic) #0
 janitor::get_dupes(dsc_ihq) #0
@@ -251,13 +251,13 @@ write_csv(dsc_participant_harmonized,
 
 ##### CONDITION
 
-Special import of condition_codes_v3 with col type specification
+Special import of condition_codes_v5 with col type specification
 (having mixed numeric & char values causes error when unnesting)
 ```{r}
-gs4_deauth()
+gs4_auth()
 
-condition_lookup_dsc <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit?pli=1#gid=384137116",
-                                   sheet = "condition_codes_v3",
+condition_lookup_dsc <- read_sheet("https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE/edit#gid=1918595726",
+                                   sheet = "condition_codes_v5",
                                    col_types = "c") %>% 
   filter(study == "DSC")
 ```
@@ -286,22 +286,21 @@ Data checks - CHD:
 # patients where chd_ever = Yes but doesn't have other chd_conditions: 17
 # https://stackoverflow.com/a/62162600
 dsc_ihq %>%
-  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>%
+  select(patient_id_deid, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>%
   rowwise() %>%
   filter(chd_ever_diagnosis == "Yes" &
            all(is.na(c_across(starts_with("chd_condition")))))
 
-# patients where chd_ever = No but has other chd_conditions?
+# patients where chd_ever = No but has other chd_conditions marked: 85
 dsc_ihq %>%
-  select(patient_id, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>%
+  select(patient_id_deid, chd_ever_diagnosis, starts_with("chd_condition_"), -chd_condition_none) %>%
   rowwise() %>%
   filter(chd_ever_diagnosis == "No" &
            any(!is.na(c_across(starts_with("chd_condition")))))
 
-# or patients where chd_ever = Yes but chd_condition_none = also Yes
+# or patients where chd_ever = Yes but chd_condition_none = also Yes: 11
 dsc_ihq %>%
-  filter(chd_ever_diagnosis == "Yes" & chd_condition_none == 1) %>%
-  pull(patient_id)
+  filter(chd_ever_diagnosis == "Yes" & chd_condition_none == 1)
 
 ```
 
@@ -330,33 +329,33 @@ dsc_ihq %>%
 
 
 CHD cols - just choose any positive assertion:
-- chd_ever_diagnosis = Yes and no other selections, or chd_condition_unsure -> CHD
+- chd_ever_diagnosis = Yes and no other selections -> CHD
 - chd_ever_diagnosis = Yes and chd_condition_none = 1 -> still CHD (maybe they don't have
-CHD now but they did at some point?)
+CHD now but they did at some point, or maybe the parent doesn't recognize any of the options?)
 - Otherwise go with the other selections (chd_)
 - leave out chd_condition_unsure
 
 GI cols
-- gi_ever_diagnosis = Yes and no other selections, or gi_condition_unsure -> GI
+- gi_ever_diagnosis = Yes and no other selections -> GI
 - gi_ever_diagnosis = Yes and gi_condition_none = 1 -> still GI
 - Otherwise go with the other selections (gi_condition_)
 - leave out gi_condition_unsure
 - celiac_ever_diagnosis = Yes OR gi_condition_celiac = 1 -> choose the positive assertion, ignore negative (will need to distinct() if both)
 
 Sleep cols
-- sleep_ever_diagnosis = Yes and no other selections, or sleep_condition_unsure -> sleep
+- sleep_ever_diagnosis = Yes and no other selections -> sleep
 - sleep_ever_diagnosis = Yes and sleep_condition_none = 1 -> still sleep
 - Otherwise go with the other selections (sleep_)
 - leave out sleep_condition_unsure
 
 skeletal cols
-- skeletal_ever_diagnosis = Yes and no other selections, or skeletal_condition_unsure -> skeletal
+- skeletal_ever_diagnosis = Yes and no other selections -> skeletal
 - skeletal_ever_diagnosis = Yes and skeletal_condition_none = 1 -> still skeletal
 - Otherwise go with the other selections (skeletal_)
 - leave out skeletal_condition_unsure
 
 thyroid cols
-- thyroid_ever_diagnosis = Yes and no other selections, or thyroid_condition_unsure -> thyroid
+- thyroid_ever_diagnosis = Yes and no other selections -> thyroid
 - thyroid_ever_diagnosis = Yes and thyroid_condition_none = 1 -> still thyroid
 - Otherwise go with the other selections (thyroid_)
 - leave out thyroid_condition_unsure
@@ -365,13 +364,13 @@ thyroid cols
 Pull conditions from ihq
 ```{r}
 dsc_conditions_subset <- dsc_ihq %>% 
-  select(patient_id, ds_specific_diagnosis,
+  select(patient_id_deid, ds_specific_diagnosis,
          starts_with(c("chd", "cardiac", "gi", "skin", "seizures",
                        "neurologic", "sleep", "skeletal", "leukemia",
                        "cancer", "covid19", "thyroid", "diabetes", "celiac",
                        "metabolic", "hearing", "eye", "mental", "learning", "dementia"))) %>% 
   mutate(across(everything(), as.character)) %>% 
-  pivot_longer(cols = -patient_id,
+  pivot_longer(cols = -patient_id_deid,
                names_to = "source_column",
                values_to = "status") %>% 
   filter(!is.na(status) & status != "No") %>% # delete blanks and _ever = No
@@ -387,7 +386,7 @@ delete ever, keep the more specific condition
 keep_specific_conditions <- dsc_conditions_subset %>% 
   filter(str_detect(source_column, "^chd|gi_|sleep|skeletal|thyroid") & !str_detect(source_column, "surgery")) %>% 
   mutate(prefix = str_extract(source_column, "^[^_]+(?=_)"), .before = source_column) %>% 
-  group_by(patient_id, prefix) %>% # group by patient and condition category
+  group_by(patient_id_deid, prefix) %>% # group by patient and condition category
   mutate(n = n(), .before = prefix) %>% 
   arrange(n) %>% 
   filter(n > 1) %>% # filter out groups that only have 1 condition per category (could be _ever or something else) 
@@ -399,18 +398,18 @@ keep_specific_conditions <- dsc_conditions_subset %>%
 keep_multiple_without_ever <- dsc_conditions_subset %>% 
   filter(str_detect(source_column, "^chd|gi_|sleep|skeletal|thyroid") & !str_detect(source_column, "surgery")) %>% 
   mutate(prefix = str_extract(source_column, "^[^_]+(?=_)"), .before = source_column) %>% 
-  group_by(patient_id, prefix) %>% # group by patient and condition category
+  group_by(patient_id_deid, prefix) %>% # group by patient and condition category
   mutate(n = n(), .before = prefix) %>% 
   arrange(n) %>% 
   filter(n > 1) %>% # filter groups that only have 1 condition per category (could be _ever or something else) 
   filter(all(status != "Yes")) %>% # get only groups that don't have _ever
   ungroup()
 
-#get back the groups with 1 condition per category (incl)
+#get back the groups with 1 condition per category (incl "ever")
 keep_single_conditions <- dsc_conditions_subset %>% 
   filter(str_detect(source_column, "^chd|gi_|sleep|skeletal|thyroid") & !str_detect(source_column, "surgery")) %>% 
   mutate(prefix = str_extract(source_column, "^[^_]+(?=_)"), .before = source_column) %>% 
-  group_by(patient_id, prefix) %>% # group by patient and condition category
+  group_by(patient_id_deid, prefix) %>% # group by patient and condition category
   mutate(n = n(), .before = prefix) %>% 
   arrange(n) %>% 
   filter(n == 1) %>% 
@@ -430,39 +429,69 @@ dsc_conditions_final <- dsc_conditions_subset %>%
   filter(!str_detect(source_column, "^chd|gi_ever|gi_condition|sleep|skeletal|thyroid")) %>% 
   rbind(filtered_ever_conditions)
 
-#dsc_conditions_final %>% arrange(patient_id)
+#dsc_conditions_final %>% arrange(patient_id_deid)
 ```
 
-Final table:
-Create empty/all same value columns
-Select columns in order of DCA template
-CHECK that these 6 pts who have ds_specific_diagnosis = [blank] were given Down syndrome MONDO code
-(for v3, I will add these "manually")
-- 11296
-- 12481
-- 12633
-- 12657
-- 12721
-- 13056
-
+Near-final table:
 ```{r}
-dsc_condition <- dsc_conditions_final %>%
+dsc_condition_harmonized <- dsc_conditions_final %>%
   left_join(dsc_ihq %>% 
-              mutate(patient_id = as.character(patient_id)) %>% 
-              select(patient_id, session_id)) %>% 
+              select(patient_id_deid, session_id)) %>%
   mutate(studyCode = "DSC",
-         participantExternalId = patient_id,
+         participantExternalId = patient_id_deid,
          eventId = session_id,
-         eventType = "Survey",
+         eventType = "Survey Session",
          ageAtConditionMeasureObservation = NA,
          conditionInterpretation = "Observed",
          conditionDataSource = "Self-reported",
          conditionStatus = "History Of",
          measureValue = NA,
          measureUnit = NA) %>%
-  select(all_of(condition_schemalabels)) %>% 
-  setNames(condition_displaynames)
+  select(all_of(condition_schemalabels)) 
+```
 
+7 pts have ds_specific_diagnosis = [blank] 
+-> add Down syndrome MONDO code "manually" and join to near-final table
+"DSC39706" "DSC11439" "DSC17381" "DSC21901" "DSC14793" "DSC40453" "DSC43367"
+```{r}
+needs_ds_mondo <- dsc_ihq %>% 
+  filter(is.na(ds_specific_diagnosis)) %>% 
+  pull(patient_id_deid)
+
+# none of these patients have any other conditions
+# dsc_conditions_final %>% filter(patient_id_deid %in% needs_ds_mondo)
+
+ds_mondo_manual <- dsc_ihq %>% 
+  filter(patient_id_deid %in% needs_ds_mondo) %>% 
+  select(patient_id_deid, session_id) %>% 
+  mutate(studyCode = "DSC",
+         participantExternalId = patient_id_deid,
+         eventId = session_id,
+         eventType = "Survey Session",
+         conditionMeasureSourceText = "Down syndrome",
+         ageAtConditionMeasureObservation = NA,
+         conditionInterpretation = "Observed",
+         conditionDataSource = "Self-reported",
+         conditionStatus = "History Of",
+         hpoLabel = NA,
+         hpoCode = NA,
+         mondoLabel = "Down syndrome",
+         mondoCode = "MONDO:0008608",
+         maxoLabel = NA,
+         maxoCode = NA,
+         otherLabel = NA,
+         otherCode = NA,
+         measureValue = NA,
+         measureUnit = NA) %>%
+  select(all_of(condition_schemalabels)) 
+  
+dsc_condition_harmonized <- bind_rows(dsc_condition_harmonized, ds_mondo_manual)
+```
+
+
+```{r}
+dsc_condition_harmonized <- dsc_condition_harmonized %>% 
+  setNames(condition_displaynames)
 ```
 
 

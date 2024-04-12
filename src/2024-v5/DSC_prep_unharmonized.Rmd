@@ -15,7 +15,7 @@ gs4_deauth()
 ```
 
 
-### 1. Participant IDs
+### 1. Participant IDs & GUIDs
 
 - quick check in Excel - any weird looking or missing IDs?
 - check for dupes
@@ -220,8 +220,15 @@ dsc_id_guid_map_complete %>%
   write_csv(here::here("output", "dsc_guids_2024-03-04.csv"))
 ```
 
+#### UNHARMONIZED DATA
 
+Convo w/ Sujata, 2024-04-11:
+- Leave in birth year (even though redundant)
+- Remove survey timestamp (full dates not allowed per DCC policy)
+- Delete zip code (unsure if Invitae did any cleaning of areas with <20k people;
+still useful with just state & country)
 
+**add these decisions to file wiki when unharmonized file is on Synapse**
 
 
 
