@@ -492,9 +492,7 @@ dsc_condition_harmonized <- bind_rows(dsc_condition_harmonized, ds_mondo_manual)
 ```{r}
 dsc_condition_harmonized <- dsc_condition_harmonized %>% 
   setNames(condition_displaynames)
-```
 
-
-```{r}
-write_csv(dsc_condition, here::here("output", "dsc_condition.csv"))
+write_csv(dsc_condition_harmonized, 
+          here::here("output", "dsc_condition_harmonized_DRAFT_2024-04-11.csv"))
 ```
