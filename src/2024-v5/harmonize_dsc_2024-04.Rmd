@@ -225,10 +225,10 @@ dsc_participant_harmonized <- dsc_participant %>%
          participantExternalId = patient_id_deid,
          familyId = familyId,
          familyType = familyType,
-         fatherId = NA,
-         motherId = NA,
+         fatherId = "",
+         motherId = "",
          siblingId = siblingId,
-         otherFamilyMemberId = NA,
+         otherFamilyMemberId = "",
          familyRelationship = familyRelationship,
          sex = gender,
          race = race,
@@ -237,15 +237,16 @@ dsc_participant_harmonized <- dsc_participant %>%
          ageAtFirstPatientEngagement = round(age_at_registration*365.25, 0),
          firstPatientEngagementEvent = "Enrollment",
          outcomesVitalStatus = outcomesVitalStatus,
-         ageAtLastVitalStatus = NA
+         ageAtLastVitalStatus = ""
   ) %>% 
   select(all_of(participant_schemalabels)) %>% 
-  setNames(participant_displaynames)
+  setNames(participant_displaynames) %>% 
+  mutate(across(everything(), ~replace_na(.x, "")))
 ```
 
 ```{r}
 write_csv(dsc_participant_harmonized, 
-          here::here("output", "dsc_participant_harmonized_DRAFT_2024-04-10.csv"))
+          here::here("output", "dsc_participant_harmonized_DRAFT_2024-04-12.csv"))
 ```
 
 
@@ -441,12 +442,12 @@ dsc_condition_harmonized <- dsc_conditions_final %>%
          participantExternalId = patient_id_deid,
          eventId = session_id,
          eventType = "Survey Session",
-         ageAtConditionMeasureObservation = NA,
+         ageAtConditionMeasureObservation = "",
          conditionInterpretation = "Observed",
          conditionDataSource = "Self-reported",
          conditionStatus = "History Of",
-         measureValue = NA,
-         measureUnit = NA) %>%
+         measureValue = "",
+         measureUnit = "") %>%
   select(all_of(condition_schemalabels)) 
 ```
 
@@ -469,20 +470,20 @@ ds_mondo_manual <- dsc_ihq %>%
          eventId = session_id,
          eventType = "Survey Session",
          conditionMeasureSourceText = "Down syndrome",
-         ageAtConditionMeasureObservation = NA,
+         ageAtConditionMeasureObservation = "",
          conditionInterpretation = "Observed",
          conditionDataSource = "Self-reported",
          conditionStatus = "History Of",
-         hpoLabel = NA,
-         hpoCode = NA,
+         hpoLabel = "",
+         hpoCode = "",
          mondoLabel = "Down syndrome",
          mondoCode = "MONDO:0008608",
-         maxoLabel = NA,
-         maxoCode = NA,
-         otherLabel = NA,
-         otherCode = NA,
-         measureValue = NA,
-         measureUnit = NA) %>%
+         maxoLabel = "",
+         maxoCode = "",
+         otherLabel = "",
+         otherCode = "",
+         measureValue = "",
+         measureUnit = "") %>%
   select(all_of(condition_schemalabels)) 
   
 dsc_condition_harmonized <- bind_rows(dsc_condition_harmonized, ds_mondo_manual)
@@ -491,8 +492,9 @@ dsc_condition_harmonized <- bind_rows(dsc_condition_harmonized, ds_mondo_manual)
 
 ```{r}
 dsc_condition_harmonized <- dsc_condition_harmonized %>% 
-  setNames(condition_displaynames)
+  setNames(condition_displaynames) %>% 
+  mutate(across(everything(), ~replace_na(.x, "")))
 
 write_csv(dsc_condition_harmonized, 
-          here::here("output", "dsc_condition_harmonized_DRAFT_2024-04-11.csv"))
+          here::here("output", "dsc_condition_harmonized_DRAFT_2024-04-12.csv"))
 ```

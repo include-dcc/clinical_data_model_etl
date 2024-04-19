@@ -1,3 +1,6 @@
+---
+title: "Harmonize TEAM-DS clinical data, v5 April 2024"
+---
 
 ```{r}
 library(tidyverse)
@@ -172,7 +175,7 @@ teamds_participant <- teamds_participant %>%
 
 
 Family ID: 101061 / 101062 & 101088 / 101089 sibling pairs - use min(Participant ID) as family ID
-
+**use blanks ("") instead of `NA`**
 ```{r}
 teamds_participant <- teamds_participant %>% 
   mutate(familyId = case_when(
@@ -182,19 +185,20 @@ teamds_participant <- teamds_participant %>%
   mutate(familyType = case_when(
     familyId %in% c("101061", "101088") ~ "Other",
     TRUE ~ "Proband-only"), .after = familyId) %>% 
-  mutate(fatherId = NA, motherId = NA, 
+  mutate(fatherId = "", motherId = "", 
          siblingId = case_when(
            participantExternalId == "101061" ~ "101062",
            participantExternalId == "101062" ~ "101061",
            participantExternalId == "101088" ~ "101089",
            participantExternalId == "101089" ~ "101088"),
-         otherFamilyMemberId = NA,
+         otherFamilyMemberId = "",
          familyRelationship = "Proband",
          .after = familyType)
 ```
 
 
 Final Participant:
+Replace `NA` with blank throughout to avoid LinkML validation issues
 ```{r}
 teamds_participant_harmonized <- teamds_participant %>% 
   select(participantGlobalId, participantExternalId, familyId, familyType,
@@ -204,13 +208,14 @@ teamds_participant_harmonized <- teamds_participant %>%
          downSyndromeStatus = "T21", 
          ageAtFirstPatientEngagement = round(365.25 * ageAtFirstPatientEngagement, 0),
          firstPatientEngagementEvent = "Enrollment",
-         outcomesVitalStatus = NA,
-         ageAtLastVitalStatus = NA) %>% 
+         outcomesVitalStatus = "Unknown or not available",
+         ageAtLastVitalStatus = "") %>% 
   select(all_of(participant_schemalabels)) %>% 
-  setNames(participant_displaynames)
+  setNames(participant_displaynames) %>% 
+  mutate(across(everything(), ~replace_na(.x, "")))
 
 teamds_participant_harmonized %>% 
-  write_csv(here::here("output", "teamds_participant_harmonized_DRAFT_2024-04-10.csv"))
+  write_csv(here::here("output", "teamds_participant_harmonized_DRAFT_2024-04-12.csv"))
 ```
 
 **Trying to get summary stats, this needs work**
@@ -229,9 +234,37 @@ write_csv(teamds_summary, here::here("output", "teamds_summary.csv"))
 
 ## CONDITIONS
 
-Note Yes/No columns vs. "Type" cols
+Just `dstype` for now, until Trish's other annotations are manually reviewed
+
+```{r}
+condition_lookup_teamds <- condition_codes_v5 %>% 
+  filter(study == "TEAM-DS") %>% 
+  unnest(source_column_value)
+```
+
+```{r}
+teamds_conditions_harmonized <- teamds_participant %>%
+  select(participantExternalId, dstype) %>% 
+  left_join(condition_lookup_teamds,
+            by = c("dstype" = "source_column_value")) %>% 
+  mutate(studyCode = study,
+         eventId = "",
+         eventType = "",
+         ageAtConditionMeasureObservation = "",
+         conditionInterpretation = "Observed",
+         conditionStatus = "History Of",
+         conditionDataSource = "Clinical",
+         measureValue = "",
+         measureUnit = "") %>%
+  select(all_of(condition_schemalabels)) %>% 
+  setNames(condition_displaynames)
+```
 
 
+```{r}
+teamds_conditions_harmonized %>% 
+  write_csv(here::here("output", "teamds_conditions_dstype_only_2024-04-19.csv"))
+```
 
 
 

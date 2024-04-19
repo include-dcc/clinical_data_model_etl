@@ -10,9 +10,9 @@ synLogin()
 gs4_auth() #select option 2 - my email
 
 # read in sheets
-condition_codes_v3 <- read_sheet(
+condition_codes_v5 <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",
-  sheet = "condition_codes_v3")
+  sheet = "condition_codes_v5")
 
 measure_codes_v3 <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",
