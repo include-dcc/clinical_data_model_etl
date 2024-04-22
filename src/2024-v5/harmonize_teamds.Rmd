@@ -234,42 +234,46 @@ write_csv(teamds_summary, here::here("output", "teamds_summary.csv"))
 
 ## CONDITIONS
 
-Just `dstype` for now, until Trish's other annotations are manually reviewed
+Start with `dstype` and structured columns; add the rest after manual review of
+Trish's annotations
 
 ```{r}
 condition_lookup_teamds <- condition_codes_v5 %>% 
   filter(study == "TEAM-DS") %>% 
   unnest(source_column_value)
+
+teamds_structured_cols <- condition_lookup_teamds %>% 
+  pull(source_column) %>% unique()
 ```
 
+
 ```{r}
-teamds_conditions_harmonized <- teamds_participant %>%
-  select(participantExternalId, dstype) %>% 
-  left_join(condition_lookup_teamds,
-            by = c("dstype" = "source_column_value")) %>% 
+teamds_structured_conditions_harmonized <- teamds_participant %>%
+  select(participantExternalId, all_of(teamds_structured_cols)) %>% 
+  pivot_longer(cols = c(-participantExternalId),
+               names_to = "source_column", 
+               values_to = "source_column_value") %>%
+  #pull(source_column_value) %>% unique()
+  filter(!source_column_value %in% c("No", "NA", NA, "missing")) %>% 
+  left_join(condition_lookup_teamds, 
+            join_by(source_column, source_column_value)) %>% 
+  #filter(is.na(study))
   mutate(studyCode = study,
          eventId = "",
          eventType = "",
          ageAtConditionMeasureObservation = "",
          conditionInterpretation = "Observed",
          conditionStatus = "History Of",
-         conditionDataSource = "Clinical",
+         conditionDataSource = "Self-reported",
          measureValue = "",
          measureUnit = "") %>%
-  select(all_of(condition_schemalabels)) %>% 
+  select(all_of(condition_schemalabels)) %>%
   setNames(condition_displaynames)
 ```
-
-
 ```{r}
-teamds_conditions_harmonized %>% 
-  write_csv(here::here("output", "teamds_conditions_dstype_only_2024-04-19.csv"))
+teamds_structured_conditions_harmonized %>% 
+  write_csv(here::here("output", "teamds_structured_conditions_2024-04-22.csv"))
 ```
-
-
-
-
-
 
 
 
