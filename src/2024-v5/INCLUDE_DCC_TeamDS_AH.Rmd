@@ -1,0 +1,207 @@
+---
+title: "TEAM DS Harmonization"
+author: "Ann Holmes"
+date: "2024-03-13"
+output: html_document
+---
+
+```{r}
+setwd("C:/Users/holmea9/OneDrive - VUMC/Documents/TeamDS Harmonization")
+require(tidyverse)
+require(readr)
+require(readxl)
+
+TEAMDS_ClinData <- read_excel("DSADHDPhenotype_DATA_LABELS_2023-10-26_1035_noDates_newHeaders.xlsx")
+
+TEAMDS_DD <- read_csv("DSADHDPhenotype_DataDictionary_2024-01-05 - ae.csv")
+
+```
+
+Extract apparent connections to Participants LinkML Model:
+
+```{r}
+participants <- TEAMDS_ClinData %>%
+  select(studyid, gender, race, ethnicity, dstype, age) %>%
+  mutate(race = case_when(race == "Black" ~ "Black or African American",
+                          race != "Black" ~ race),
+         dstype = case_when(dstype != "Other" ~ "T21",
+                            dstype == "Other" ~ dstype)) %>%
+  mutate_at(c('gender', 'race', 'ethnicity', 'dstype'), as.factor)
+ 
+
+participants$age <- round(participants$age*365,0)
+
+```
+
+```{r}
+participants_extended <- participants %>%
+  mutate(`Study Code` = "TEAM-DS", .before = studyid) %>%
+  mutate(`Participant Global ID` = NA, .after = `Study Code`) %>%
+  mutate(`Family ID` = NA, .after = studyid) %>%
+  mutate(`Family Type` = "Proband-only", .after = `Family ID`) %>%
+  mutate(`Father ID` = NA, .after = `Family Type`) %>%
+  mutate(`Mother ID` = NA, .after = `Father ID`) %>%
+  mutate(`Sibling ID` = NA, .after = `Mother ID`) %>%
+  mutate(`Other Family Member ID` =NA, .after = `Sibling ID`) %>%
+  mutate(`Family Relationship` = "Proband", .after = `Other Family Member ID`) %>%
+  mutate(`First Patient Engagement Event` = "Enrollment", .after = age) %>%
+  mutate(`Outcomes Vital Status` = "Unknown or not available", .after = `First Patient Engagement Event`) %>% 
+  mutate(`Age at Last Vital Status` = age, .after = `Outcomes Vital Status`)
+
+# participants_extended$`Participant Global ID` <- paste0("TEAMDS", participants_extended$`Participant Global ID`)
+    
+participants_extended
+```
+
+```{r}
+participants_extended_renamed <- participants_extended %>% 
+  rename_at('studyid', ~'Participant External ID') %>%
+  rename_at('age' , ~'Age at First Engagement') %>%
+  rename_at('gender', ~'Sex') %>%
+  rename_at('ethnicity', ~'Ethnicity') %>%
+  rename_at('race', ~'Race') %>%
+  rename_at('dstype', ~'Down Syndrome Status')
+
+# participants_extended_renamed$`Participant External ID` <- paste0("TEAMDS", participants_extended_renamed$`Participant External ID`)
+
+
+participants_extended_renamed
+```
+
+```{r}
+# write_csv(participants_extended_renamed, "TEAMDS_participants_draft_2.csv")
+```
+
+### Handling Medications
+
+Extract medication information with ID's
+
+```{r}
+medications <- TEAMDS_ClinData %>% select(studyid, medication1:medication10)
+
+meds_long <- medications %>% pivot_longer(cols = medication1:medication10, names_to = "Medication Number", values_to = "Medication Name")
+
+meds_long_rename <- meds_long %>% filter(`Medication Name` != "not applicable or not attempted") %>% rename_at('studyid', ~'Participant External ID')
+```
+
+```{r}
+write_csv(meds_long_rename, 'TEAMDS_medications_list.csv')
+```
+
+### Handling Conditions
+
+```{r}
+
+conditions_columns <- TEAMDS_ClinData %>% select(studyid, age, height, weight, bmi, dstype:othertherapy_note)
+
+conditions_columns$height <- round(as.numeric(conditions_columns$height)*2.54, 1) # convert height in inches to height in cm
+conditions_columns$weight <- round(as.numeric(conditions_columns$weight)/2.205, 1) # convert height in inches to height in cm
+conditions_columns$bmi <- round(as.numeric(conditions_columns$bmi), 1)
+
+conditions_columns$height <- as.character(conditions_columns$height)
+conditions_columns$weight <- as.character(conditions_columns$weight)
+conditions_columns$bmi <- as.character(conditions_columns$bmi)
+
+colnames(conditions_columns)[which(names(conditions_columns) == "height")] <- "Height"
+colnames(conditions_columns)[which(names(conditions_columns) == "weight")] <- "Weight"
+colnames(conditions_columns)[which(names(conditions_columns) == "bmi")] <- "BMI"
+
+
+  
+conditions_long <- conditions_columns %>% pivot_longer(cols = c(Height, Weight, BMI, dstype:othertherapy_note), names_to = "VarName", values_to = "Condition or Measure Source Text")
+
+conditions_long_2 <- conditions_long %>% filter(`Condition or Measure Source Text` != "No")%>% filter(`Condition or Measure Source Text` != "not applicable or not attempted") %>% 
+  rename_at('studyid', ~'Participant External ID') %>%
+  rename_at('age', ~'Age at Condition or Measure Observation')
+
+conditions_long_2 <- conditions_long_2 %>% mutate(`Measure Value` = 
+                                                    case_when(VarName== "Height" ~ `Condition or Measure Source Text`,
+                                                              VarName == "Weight" ~ `Condition or Measure Source Text`,
+                                                              VarName == "BMI" ~ `Condition or Measure Source Text`))
+```
+
+```{r}
+# conditionTypes <- c("ds", "giconcerns", "visionpx", "impairedspeech", "osa", "adhd", "headinjuries", "sleepdisorder", "medicalconcerns", "feeddifficult", "anxiety", "thyroidpx", "hearingprob", "hearingdevice", "significantillness", "heartpx", "neuropx", "diabetes")
+
+# conditions_long_2 %>% filter(grep(paste(conditionTypes,collapse = "|"), VarName))
+
+# conditions_long_trimmed <- conditions_long_2 %>% filter(!VarName %in% conditionTypes)
+```
+
+
+```{r}
+conditions_long_expanded <- conditions_long_2 %>% 
+  mutate(`Study Code` = "TEAM-DS", .before = `Participant External ID`) %>%
+  mutate(`Event ID` = "Survey", .after = `Participant External ID`) %>%
+  mutate(`Event Type` = "Survey", .after = `Event ID`) %>%
+  mutate(`Condition Interpretation`= "Observed", .after = `Condition or Measure Source Text`) %>%
+  mutate(`Condition Status` = "History Of") %>%
+  mutate(`Condition Data Source` = "Self-reported") %>% 
+  mutate(`HPO Label` = NA) %>%
+  mutate(`HPO Code` = NA) %>%
+  mutate(`MONDO Label` = NA) %>%
+  mutate(`MONDO Code` = NA) %>%
+  mutate(`MAXO Label` = NA) %>%
+  mutate(`MAXO Code` = NA) %>%
+  mutate(`Other Label` = NA) %>%
+  mutate(`Other Code` = NA) %>%
+  mutate(`Measure Unit` = NA) %>% 
+  mutate(`Other Label` = case_when(VarName== "Height" ~ VarName,
+                                     VarName == "Weight" ~ VarName,
+                                     VarName == "BMI" ~ VarName)) %>%
+  mutate(`Other Code` = case_when(VarName== "Height" ~ "NCIT:C164634",
+                                     VarName == "Weight" ~ "NCIT:C81328",
+                                     VarName == "BMI" ~ "NCIT:C16358")) %>%
+  mutate(`Measure Unit` = case_when(VarName== "Height" ~ "cm",
+                                     VarName == "Weight" ~ "kg",
+                                     VarName == "BMI" ~ "kg/m2"))
+```
+
+```{r}
+conditions_long_expanded <- conditions_long_expanded %>% 
+  relocate(`Condition or Measure Source Text`, .after = `Event Type`) %>%
+  relocate(`Measure Value`, .before = `Measure Unit`)
+
+
+conditions_long_expanded$`Condition or Measure Source Text` <- ifelse(conditions_long_expanded$`Condition or Measure Source Text` == 1, conditions_long_expanded$VarName, conditions_long_expanded$`Condition or Measure Source Text`)
+
+conditions_long_expanded$`Condition or Measure Source Text` <- ifelse(conditions_long_expanded$VarName %in% c("Height", "Weight", "BMI"), NA, conditions_long_expanded$`Condition or Measure Source Text`)
+
+conditions_long_expanded$`Condition Interpretation` <- ifelse(conditions_long_expanded$VarName %in% c("Height", "Weight", "BMI"), NA, conditions_long_expanded$`Condition Interpretation`)
+conditions_long_expanded$`Condition Status` <- ifelse(conditions_long_expanded$VarName %in% c("Height", "Weight", "BMI"), NA, conditions_long_expanded$`Condition Status`) # nolint
+conditions_long_expanded$`Condition Data Source` <- ifelse(conditions_long_expanded$VarName %in% c("Height", "Weight", "BMI"), NA, conditions_long_expanded$`Condition Data Source`) # nolint
+conditions_long_expanded$`Event ID` <- ifelse(conditions_long_expanded$VarName %in% c("Height", "Weight", "BMI"), NA, conditions_long_expanded$`Event ID`) # nolint
+conditions_long_expanded$`Event Type` <- ifelse(conditions_long_expanded$VarName %in% c("Height", "Weight", "BMI"), NA, conditions_long_expanded$`Event Type`) # nolint
+
+conditions_long_expanded$`Age at Condition or Measure Observation` <- conditions_long_expanded$`Age at Condition or Measure Observation`*365
+```
+
+```{r}
+joinDescriptions <- TEAMDS_DD %>% select(`Variable / Field Name`, `Field Label`) %>% rename_at('Variable / Field Name', ~'VarName')
+
+conditions_long_expanded <- left_join(conditions_long_expanded, joinDescriptions, by = 'VarName') %>% relocate(`Field Label`, .after = VarName)
+
+conditions_long_expanded$`Condition or Measure Source Text` <- ifelse(conditions_long_expanded$`Condition or Measure Source Text` %in% c("Yes", "yes"), conditions_long_expanded$VarName, conditions_long_expanded$`Condition or Measure Source Text`)
+```
+
+```{r}
+TEAMDS_conditions_long_OnlyConditions <- conditions_long_expanded %>% filter(!is.na(`Condition or Measure Source Text`)) %>% select(-VarName)
+TEAMDS_conditions_long_BMI <- conditions_long_expanded %>% filter(is.na(`Condition or Measure Source Text`)) %>% select(-VarName)
+```
+
+```{r}
+write_csv(TEAMDS_conditions_long_BMI, "TEAMDS_conditions_bmi.csv")
+write_csv(TEAMDS_conditions_long_OnlyConditions, "TEAMDS_conditions_only.csv")
+```
+
+
+```{r}
+write_csv(conditions_long_expanded, "TEAMDS_conditions_draft.csv")
+```
+
+
+```{r}
+hold <- data.frame(unique(conditions_long_expanded$`Condition or Measure Source Text`))
+write_csv(hold, "TEAM-DS_unique_conditions.csv")
+```
+

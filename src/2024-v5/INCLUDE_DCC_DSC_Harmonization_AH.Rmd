@@ -1,0 +1,167 @@
+---
+title: "DS Connect Data Harmonization"
+author: "Ann Holmes"
+date: "2024-04-03"
+output: html_document
+---
+
+```{r}
+setwd("C:/Users/holmea9/OneDrive - VUMC/Documents/DSC Harmonization")
+
+# syn53699683
+dsc_dd <- read_excel("dsconnect_demographics_data_dictionary_20231005_PLdeid.xlsx")
+# syn26445516
+dsc_data <- read_csv("dsconnect_demographics_to_dcc_20240226_PLdeid_noguid.csv")
+
+# syn53699684
+dsc_ihq_dd <- read_excel("dsconnect_ihq_data_dictionary_20240226_PLdeid_questions.xlsx")
+# syn26445517
+dsc_ihq_data <- read_csv("dsconnect_ihq_survey_20240226_PLdeid_noguid.csv")
+```
+
+### Participants Data
+
+```{r}
+# dsc_participants <- dsc_data %>% select(patient_id_deid, age_at_registration, gender, race_american_indian, race_asian, race_black, race_pacific_islander, race_white, race_unknown, ethnicity)
+
+dsc_participants_long <- dsc_participants %>% pivot_longer(race_american_indian:race_unknown, values_to = "Response", names_to = "Race")
+
+dsc_participants_long <- dsc_participants_long %>% filter(Response == 1) %>% select(-Response)
+
+dsc_participants_long <- dsc_participants_long %>% mutate(Race = case_when(Race == "race_white" ~ "White",
+                                                  Race == "race_black" ~ "Black or African American",
+                                                  Race == "race_asian" ~ "Asian",
+                                                  Race == "race_pacific_islander" ~ "Native Hawaiian or Other Pacific Islander",
+                                                  Race == "race_american_indian" ~ "American Indian or Alaskan Native",
+                                                  Race == "race_unknown" ~ "Unknown"))
+
+
+colnames(dsc_participants_long) <- c("Participant External ID", "Age at First Patient Engagement", "Sex", "Ethnicity", "Race")
+
+dsc_participants_long$Ethnicity <- ifelse(is.na(dsc_participants_long$Ethnicity), "Prefer not to answer", dsc_participants_long$Ethnicity)
+
+```
+
+
+```{r}
+dsc_participants_long_extended <- dsc_participants_long %>%
+  mutate(`Study Code` = "DSC", .before = `Participant External ID`) %>%
+  mutate(`Participant Global ID` = "TBD", .after = `Study Code`) %>%
+  mutate(`Family ID` = NA, .after = `Participant External ID`) %>%
+  mutate(`Family Type` = "Proband-only", .after = `Family ID`) %>%
+  mutate(`Father ID` = NA, .after = `Family Type`) %>%
+  mutate(`Mother ID` = NA, .after = `Father ID`) %>%
+  mutate(`Sibling ID` = NA, .after = `Mother ID`) %>%
+  mutate(`Other Family Member ID` = NA, .after = `Sibling ID`) %>%
+  mutate(`Family Relationship` = "Proband", .after = `Other Family Member ID`) %>%
+  mutate(`Down Syndrome Status` = "T21", .after= Ethnicity) %>%
+  mutate(`First Patient Engagement Event` = "Enrollment", .after = `Down Syndrome Status`) %>%
+  mutate(`Outcomes Vital Status` = "Unknown or not available", .after = `First Patient Engagement Event`) %>%
+  mutate(`Age at Last Vital Status` = NA)
+
+dsc_participants_long_extended <- dsc_participants_long_extended %>%
+  relocate(Race, .after = Sex) %>%
+  relocate(`Age at First Patient Engagement`, .after = `Down Syndrome Status`)
+
+dsc_participants_long_extended$`Age at First Patient Engagement` <- as.numeric(dsc_participants_long_extended$`Age at First Patient Engagement`)*365
+  
+```
+
+```{r}
+# Get global id information from dewrangle
+existing_global_ids <- read_csv("global-descriptors-ds-connect-all.csv")
+
+# N DSCid = 3643, N id = 3644
+
+global_ids_deid <- existing_global_ids %>% filter(grepl("DSC", descriptor) == TRUE)
+global_ids_deid <- global_ids_deid %>% rename_at('descriptor', ~'Participant External ID')
+
+dsc_participants_long_extended <- dsc_participants_long_extended %>% left_join(global_ids_deid, by = 'Participant External ID') %>%
+  select(-c(`Participant Global ID`,fhirResourceType, createdAt, createdBy)) %>%
+  rename_at('globalId', ~ 'Participant Global ID') %>%
+  relocate(`Participant Global ID`, .after = `Study Code`)
+```
+
+```{r}
+dsc_previous_upload_participants <- read_csv("all_cohorts_participant_2023-06-08.csv")
+dsc_previous_upload_participants <- dsc_previous_upload_participants %>% filter(`Study Code` == "DSC")
+
+
+differenceGUID <- setdiff(dsc_previous_upload_participants$`Participant Global ID`, dsc_participants_long_extended$`Participant Global ID`) # 66
+
+duplicatedata <- dsc_participants_long_extended %>% count(`Participant Global ID`)
+
+duplicatedata <- duplicatedata %>% filter(n>1) # 194
+
+mtor_participants <- dsc_participants_long_extended %>% filter(`Participant Global ID` %in% duplicatedata$`Participant Global ID`) %>% distinct(`Participant Global ID`, .keep_all = TRUE) %>% mutate(Race = "More than one race")
+```
+
+```{r}
+dsc_participants_long_extended_nodup <- dsc_participants_long_extended %>% filter(!`Participant Global ID` %in% mtor_participants$`Participant Global ID`)
+
+dsc_participants_long_extended_nodup <- bind_rows(dsc_participants_long_extended_nodup, mtor_participants)
+
+dsc_participants_long_extended_nodup %>% distinct(`Participant Global ID`)
+
+setdiff(dsc_participants_long_extended_nodup$`Participant Global ID`, dsc_previous_upload_participants$`Participant Global ID`)
+# 151 global ids that are in the new submission that are not in the old submission
+
+setdiff(dsc_previous_upload_participants$`Participant Global ID`, dsc_participants_long_extended_nodup$`Participant Global ID`)
+# 66 global ids that are in the old submission that are not in the new submission
+```
+
+
+```{r}
+write_csv(dsc_participants_long_extended, "DSC_participants_draft.csv")
+```
+
+
+### Conditions Data
+
+```{r}
+dsc_ihq_data_chr <- dsc_ihq_data %>% mutate(across(everything(), as.character))
+
+
+dsc_ihq_data_chr_long <- dsc_ihq_data_chr %>% pivot_longer(cols= ds_specific_diagnosis:household_income_gross_annual_usd, names_to = "Condition", values_to = "Response")
+
+text_to_filter <- c("ever", "none", "age_at", "education_level", "education_under18", 
+                    "household", "hospital_admissions", "clinical_trial", "living_situation",
+                    "education_over18") # information about parents is lost-- might want parent ID values
+# 
+
+dsc_ihq_data_chr_long_filt <- dsc_ihq_data_chr_long %>% filter(is.na(Response) == FALSE) %>%
+  filter(grepl(paste(text_to_filter, collapse = '|'), Condition) == FALSE)
+```
+
+
+```{r}
+dsc_ihq_conditions <- dsc_ihq_data_chr_long_filt %>% rename_at('patient_id_deid', ~ 'Participant External ID') %>%
+  select(-c(parent_id, parent_id_deid, nih_consent_group, survey_time, birth_year, survey_complete, session_id))
+colnames(dsc_ihq_conditions) <- c("Participant External ID", "Participant Deid", "Age", "Condition", "Response")
+# dsc_ihq_data_chr_long_filt %>% filter(patient_id == 3210)
+```
+
+```{r}
+dsc_ihq_conditions_ds <- dsc_ihq_conditions %>%
+  filter(Condition == "ds_specific_diagnosis")
+
+colnames(dsc_ihq_conditions_ds) <- c("Old ID", "Participant External ID", "Age", "Condition", "Response")
+
+dsc_participants_long_extended_annotation <- dsc_participants_long_extended %>% left_join(dsc_ihq_conditions_ds, by = "Participant External ID")
+```
+
+
+```{r}
+dsc_previous_upload <- read_csv("all_cohorts_condition_2023-05-26.csv")
+dsc_previous_upload <- dsc_previous_upload %>% filter(`Study Code` == "DSC")
+
+write_csv(dsc_previous_upload, "DSC_PreviousUpload.csv")
+```
+
+
+```{r}
+dsc_ihq_conditions_merged <- dsc_ihq_conditions %>% left_join(dsc_previous_upload, by = "Participant External ID")
+
+write_csv(dsc_ihq_conditions_merged, "DSC_conditions_draft_annotations.csv")
+```
+
