@@ -1,0 +1,233 @@
+---
+title: "BrainPower Harmonization"
+author: "Ann Holmes"
+date: "2024-03-18"
+output: html_document
+---
+
+```{r}
+setwd("C:/Users/holmea9/OneDrive - VUMC/Documents/BrainPower Harmonization")
+require(tidyverse)
+require(readxl)
+
+# syn55172101 Synapse ID for the data file below
+Include_DCC_Data_Brainpower <- read_excel("DCC Demographic and Health History 2024-04-11.xlsx")
+
+# syn46837403 Synapse ID for the data dictionary below
+BrainPower_DD <- read_csv("BrainPower_DownSyndromeAndAlzheimersBrain_DataDictionary_2022-11-28.csv")
+```
+
+```{r}
+# Provide informative labels to gender (follows LinkML conventions)
+Include_DCC_Data_Brainpower$gender <- factor(Include_DCC_Data_Brainpower$gender, labels = c("Male", "Female"))
+
+# Recode factor labels to what is listed in enumRace in the LinkML model
+Include_DCC_Data_Brainpower$race <- factor(Include_DCC_Data_Brainpower$race, labels = c("American Indian or Alaskan Native", "Asian", "Native Hawaiian or Other Pacific Islander", "Black or African American", "White", "More than one race"))
+
+# Provide informative labels to ethnicity (follows LinkML conventions)
+Include_DCC_Data_Brainpower$ethnicity <- factor(Include_DCC_Data_Brainpower$ethnicity, labels = c("Not Hispanic or Latino", "Hispanic or Latino"))
+
+Include_DCC_Data_Brainpower$down_syndrome <- "T21"
+
+# Convert age in years to age in days
+Include_DCC_Data_Brainpower$age <- round(Include_DCC_Data_Brainpower$age*365.25,0)
+```
+
+```{r}
+# Select out the columns that align with what is needed in the participants data
+participantsData <- Include_DCC_Data_Brainpower %>% 
+  select(record_id, age, gender, race, ethnicity, down_syndrome)
+
+# Create a bunch of columns that do not already exist
+participantData_extended <- participantsData %>%
+  mutate(`Study Code` = "BrainPower", .before = record_id) %>%
+  mutate(`Participant Global ID`= NA, .before = record_id) %>%
+  mutate(`Family ID` = NA, .after = record_id) %>%
+  mutate(`Family Type` = "Proband-only", .after = `Family ID`) %>%
+  mutate(`Father ID` = NA, .after = `Family Type`) %>%
+  mutate(`Mother ID` = NA, .after = `Father ID`) %>%
+  mutate(`Sibling ID` = NA, .after = `Mother ID`) %>%
+  mutate(`Other Family Member ID` = NA, .after = `Sibling ID`) %>%
+  mutate(`Family Relationship` = "Proband", .after = `Other Family Member ID`) %>%
+  mutate(`First Patient Engagement Event` = "Enrollment", .after = down_syndrome) %>%
+  mutate(`Outcomes Vital Status` = "Alive") %>%
+  mutate(`Age at Last Vital Status` = age)
+```
+
+```{r}
+# Rename the columns that existed already to what they're called in LinkML
+participantData_extended <- participantData_extended %>%
+  rename_at('age' ,~'Age at First Patient Engagement') %>%
+  rename_at('record_id',~'Participant External ID') %>%
+  rename_at('gender', ~'Sex') %>%
+  rename_at('race', ~'Race') %>%
+  rename_at('ethnicity', ~'Ethnicity') %>%
+  rename_at('down_syndrome', ~'Down Syndrome Status')
+
+# Move columns around to look tidy
+participantData_extended <- participantData_extended %>%
+  relocate(`Age at First Patient Engagement`, .before = `First Patient Engagement Event`)
+
+```
+
+```{r}
+# Ensure we have unique IDs, create file to upload to Dewrangle
+unique(participantData_extended$`Participant External ID`)
+toDewrangle <- cbind.data.frame(participantData_extended$`Participant External ID`, rep("Patient", nrow(participantData_extended)))
+colnames(toDewrangle) <- c("descriptor", "fhirResourceType")
+
+write_csv(toDewrangle, "BrainPower_IDs_to_Dewrangle.csv")
+```
+
+```{r}
+# Dewrangle IDs for Participant Global ID (generated one time)
+
+dewrangleOutput <- read_csv("global-descriptors-brainpower.csv")
+colnames(dewrangleOutput) <- c("Participant External ID", "Patient", "Participant Global ID", "createdAt", "createdBy")
+
+participantData_extended$`Participant External ID` <- as.character(participantData_extended$`Participant External ID`)
+dewrangleOutput$`Participant External ID` <- as.character(dewrangleOutput$`Participant External ID`)
+
+participantData_extended_ids <- participantData_extended %>% left_join(dewrangleOutput, by = "Participant External ID") %>%
+  select(-c("Patient", "createdAt", "createdBy", "Participant Global ID.x")) %>%
+  rename_at("Participant Global ID.y", ~"Participant Global ID") %>%
+  relocate("Participant Global ID", .after = "Study Code")
+
+# Remove all NA values and replace with blank cells
+participantData_extended_ids[is.na(participantData_extended_ids)] <- ""
+```
+
+
+```{r}
+write_csv(participantData_extended_ids, "BrainPower_participants_GlobalID_15Apr2024.csv")
+```
+
+
+### Conditions Data
+
+```{r}
+conditionsData <- Include_DCC_Data_Brainpower %>% select(record_id, age, down_syndrome, insulnDepDiab:blood_vessel_surgery) 
+
+conditionsData$heart_condition <- ifelse(conditionsData$heart_condition == 1, conditionsData$name_heart_problem, 0)
+
+conditionsData_chr <- conditionsData %>% mutate(across(everything(), as.character))
+
+
+conditionsData_chr <- conditionsData_chr %>% select(-name_heart_problem)
+
+
+conditionsData_long <- conditionsData_chr %>% pivot_longer(cols = c(down_syndrome:blood_vessel_surgery), names_to = "VarName", values_to = "Condition or Measure Source Text")
+
+conditionsData_long$`Condition or Measure Source Text` <- ifelse(conditionsData_long$VarName == "heart_condition" & conditionsData_long$`Condition or Measure Source Text` == 1, conditionsData_long$name_heart_problem, conditionsData_long$`Condition or Measure Source Text`)
+
+conditionsData_long <- conditionsData_long %>% filter(`Condition or Measure Source Text` != 0)
+
+```
+
+```{r}
+
+conditionsData_long_2 <- conditionsData_long %>% mutate(`Study Code` = "BrainPower", .before = record_id) %>%
+  mutate(`Event ID` = "Survey", .after = record_id) %>%
+  mutate(`Event Type` = "Survey", .after = `Event ID`) %>%
+  mutate(`Condition Interpretation`= "Observed", .after = `Condition or Measure Source Text`) %>%
+  mutate(`Condition Status` = "History Of") %>%
+  mutate(`Condition Data Source` = "Self-reported") %>% 
+  mutate(`HPO Label` = NA) %>%
+  mutate(`HPO Code` = NA) %>%
+  mutate(`MONDO Label` = NA) %>%
+  mutate(`MONDO Code` = NA) %>%
+  mutate(`MAXO Label` = NA) %>%
+  mutate(`MAXO Code` = NA) %>%
+  mutate(`Other Label` = NA) %>%
+  mutate(`Other Code` = NA) %>%
+  mutate(`Measure Value` = NA) %>%
+  mutate(`Measure Unit` = NA) 
+
+# %>%  mutate(`Other Label` = case_when(VarName== "height" ~ VarName, VarName == "weight_kg" ~ VarName,VarName == "bmi" ~ VarName)) %>% mutate(`Other Code` = case_when(VarName== "height" ~ "NCIT:C164634",VarName == "weight_kg" ~ "NCIT:C81328", VarName == "bmi" ~ "NCIT:C16358")) %>% mutate(`Measure Unit` = case_when(VarName== "height" ~ "cm",VarName == "weight_kg" ~ "kg",VarName == "bmi" ~ "kg/m2"))
+
+conditionsData_long_2$`Condition or Measure Source Text` <- ifelse(conditionsData_long_2$`Condition or Measure Source Text` == 1, conditionsData_long_2$VarName, conditionsData_long_2$`Condition or Measure Source Text`)
+
+conditionsData_long_2$`Measure Value` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), conditionsData_long_2$`Condition or Measure Source Text`, NA)
+
+conditionsData_long_2$`Condition or Measure Source Text` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), NA, conditionsData_long_2$`Condition or Measure Source Text`)
+
+conditionsData_long_2$`Condition Interpretation` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), NA, conditionsData_long_2$`Condition Interpretation`)
+conditionsData_long_2$`Condition Status` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), NA, conditionsData_long_2$`Condition Status`) 
+conditionsData_long_2$`Condition Data Source` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), NA, conditionsData_long_2$`Condition Data Source`) 
+conditionsData_long_2$`Event ID` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), NA, conditionsData_long_2$`Event ID`) 
+conditionsData_long_2$`Event Type` <- ifelse(conditionsData_long_2$VarName %in% c("height", "weight_kg", "bmi"), NA, conditionsData_long_2$`Event Type`) 
+
+conditionsData_long_2 <- conditionsData_long_2 %>%
+  rename_at('age' ,~'Age At Condition or Measure Observation') %>%
+  rename_at('record_id',~'Participant External ID')
+
+```
+
+```{r}
+conditions_long_OnlyConditions <- conditionsData_long_2 %>% filter(`Condition or Measure Source Text` %in% c("T21", "insulnDepDiab",
+                                                                                                             "metabolicDisorder", "hyperten",
+                                                                                                             "typ2diabetic", "Asthma", 
+                                                                                                             "foodallergy", "hypothyroid", "blood_vessel_surgery")) %>% select(-VarName)
+
+conditions_long_HeartConditions <- conditionsData_long_2 %>% filter(!(`Condition or Measure Source Text` %in% c("T21", "insulnDepDiab",
+                                                                                                             "metabolicDisorder", "hyperten",
+                                                                                                             "typ2diabetic", "Asthma", 
+                                                                                                             "foodallergy", "hypothyroid", "blood_vessel_surgery"))) %>% select(-VarName)
+
+conditions_long_OnlyConditions$`Condition or Measure Source Text` <- ifelse(conditions_long_OnlyConditions$`Condition or Measure Source Text` == "T21","down_syndrome", conditions_long_OnlyConditions$`Condition or Measure Source Text`)
+# conditions_long_BMI <- conditionsData_long_2 %>% filter(is.na(`Condition or Measure Source Text`)) %>% select(-VarName)
+```
+
+```{r}
+# Extract unique conditions and send off for annotation
+hold <- data.frame(unique(conditions_long_OnlyConditions$`Condition or Measure Source Text`))
+write_csv(hold, "unique_conditions.csv")
+```
+
+
+```{r}
+write_csv(conditions_long_OnlyConditions, "BrainPower_conditions_only_no_heart.csv")
+write_csv(conditions_long_BMI, "BrainPower_bmi_only.csv")
+```
+
+
+
+```{r}
+partialConditions <- read_csv("BrainPower_partialConditions.csv")
+
+# Separates original text to reflect different rows for different ontologies-- Note
+all_conditions_long <- conditions_long_OnlyConditions %>%
+  separate_longer_delim(`Condition or Measure Source Text`, delim = ",") %>%
+  separate_longer_delim(`Condition or Measure Source Text`, delim = "and")
+
+all_conditions_long$`Condition or Measure Source Text` <- trimws(all_conditions_long$`Condition or Measure Source Text`)
+
+all_conditions_long_annotated <- all_conditions_long %>% 
+  select(-c(`HPO Label`, `HPO Code`, `MONDO Label`, `MONDO Code`, `MAXO Label`, `MAXO Code`, `Other Label`, `Other Code`)) %>%
+  left_join(partialConditions, by = "Condition or Measure Source Text") %>%
+  relocate(`Measure Value`, .after = `Other Code`) %>%
+  relocate(`Measure Unit`, .after = `Measure Value`)
+
+```
+
+```{r}
+# Correct names of conditions
+all_conditions_long_annotated <- all_conditions_long_annotated %>%
+  mutate(`Condition or Measure Source Text` = case_when(`Condition or Measure Source Text` == "down_syndrome" ~ "Diagnosis of Down Syndrome - yes",
+                                                        `Condition or Measure Source Text` == "insulnDepDiab" ~ "insulin dependent diabetic",
+                                                        `Condition or Measure Source Text` == "metabolicDisorder" ~ "metabolic disorder",
+                                                        `Condition or Measure Source Text` == "hyperten" ~ "hypertension",
+                                                        `Condition or Measure Source Text` == "typ2diabetic" ~ "type 2 diabetes",
+                                                        `Condition or Measure Source Text` == "Asthma" ~ "asthma",
+                                                        `Condition or Measure Source Text` == "foodallergy" ~ "food allergies",
+                                                        `Condition or Measure Source Text` == "hypothyroid" ~ "hypothyroidism",
+                                                        `Condition or Measure Source Text` == "blood_vessel_surgery" ~ "Has the participant ever had heart or blood vessel surgery or a cardiac catheterization? - yes"))
+
+all_conditions_long_annotated[is.na(all_conditions_long_annotated)] <- ""
+```
+
+
+```{r}
+write_csv(all_conditions_long_annotated, "BrainPower_conditions_annotation_no_heart_15Apr2024.csv")
+```
+
