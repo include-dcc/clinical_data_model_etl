@@ -14,9 +14,9 @@ condition_codes_v5 <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",
   sheet = "condition_codes_v5")
 
-measure_codes_v3 <- read_sheet(
+measure_codes_v5 <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",
-  sheet = "measure_codes_v3")
+  sheet = "measure_codes_v5")
 
 etl_to_linkml_plan <- read_sheet(
   "https://docs.google.com/spreadsheets/d/1cHSburUDg6CR4az5FZR82FI992h7cyv-22pLVTFLZvE",

@@ -268,11 +268,47 @@ teamds_structured_conditions_harmonized <- teamds_participant %>%
          measureValue = "",
          measureUnit = "") %>%
   select(all_of(condition_schemalabels)) %>%
+  setNames(condition_displaynames) %>% 
+  mutate(across(everything(), ~replace_na(.x, "")))
+```
+
+
+Measures (just BMI for now)
+Filter out participants where BMI = 0
+```{r}
+teamds_bmi_harmonized <- teamds_participant %>%
+  select(participantExternalId, bmi, age) %>% 
+  mutate(age = round(365.25 * age, 0),
+         bmi = round(bmi, 1)) %>% 
+  filter(bmi > 0) %>% 
+  mutate(studyCode = "TEAM-DS",
+         eventId = "",
+         eventType = "",
+         ageAtConditionMeasureObservation = as.character(age),
+         conditionMeasureSourceText = "BMI",
+         conditionInterpretation = "",
+         conditionStatus = "", 
+         conditionDataSource = "",
+         hpoLabel = "",
+         hpoCode = "",
+         mondoLabel = "",
+         mondoCode = "",
+         maxoLabel = "",
+         maxoCode = "",
+         otherLabel = "Body Mass Index",
+         otherCode = "NCIT:C16358",
+         measureValue = as.character(bmi),
+         measureUnit = "kg/m2"
+  ) %>% 
+  select(all_of(condition_schemalabels)) %>%
   setNames(condition_displaynames)
 ```
+
+
 ```{r}
-teamds_structured_conditions_harmonized %>% 
-  write_csv(here::here("output", "teamds_structured_conditions_2024-04-22.csv"))
+bind_rows(teamds_bmi_harmonized, teamds_structured_conditions_harmonized) %>%
+  mutate(across(everything(), ~replace_na(.x, ""))) %>% 
+  write_csv(here::here("output", "teamds_structured_conditions_bmi_2024-04-23.csv"))
 ```
 
 

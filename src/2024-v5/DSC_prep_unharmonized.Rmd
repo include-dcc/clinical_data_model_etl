@@ -227,17 +227,56 @@ Convo w/ Sujata, 2024-04-11:
 - Remove survey timestamp (full dates not allowed per DCC policy)
 - Delete zip code (unsure if Invitae did any cleaning of areas with <20k people;
 still useful with just state & country)
+- delete GUID from demo & IHQ
+
+ID usage, per email thread 2024-04-24:
+
+- Data Hub UI: De-identified Patient IDs
+- Unharmonized data download: Original and de-identified Patient IDs
+- GUID mapping file: De-identified IDs (to match portal) and GUIDs
 
 **add these decisions to file wiki when unharmonized file is on Synapse**
 
+```{r}
+dsc_demo_unharmonized <- dsc_demographic %>% 
+  select(-address_postal_code)
 
+dsc_demo_unharmonized %>% 
+  write_csv(here::here("output",
+                       "dsc_demographic_unharmonized_2024-02-26.csv"))
+```
 
+```{r}
+dsc_ihq_unharmonized <- dsc_ihq %>%
+  select(-survey_time)
 
+dsc_ihq_unharmonized %>% 
+  write_csv(here::here("output",
+                       "dsc_ihq_unharmonized_2024-02-26.csv"))
+```
 
+**indicate above fields were REDACTED in dictionary; combine dicts into 1 file**
 
+Check fields in data vs dictionary:
 
+```{r}
+dsc_demo_dict_fields <- read_xlsx(synGet("syn58614987")$path, sheet = 1, skip = 2) %>% 
+  filter(!str_detect(Field, "REDACTED")) %>% 
+  pull(Field)
 
+dsc_ihq_dict_fields <- read_xlsx(synGet("syn58614987")$path, sheet = 2, skip = 2) %>% 
+  filter(!str_detect(Field, "REDACTED")) %>% 
+  pull(Field)
+```
 
+```{r}
+setdiff(colnames(dsc_demo_unharmonized), dsc_demo_dict_fields)
+# corrected dictionary from register_year to registration_year
+setdiff(dsc_demo_dict_fields, colnames(dsc_demo_unharmonized))
+
+setdiff(colnames(dsc_ihq_unharmonized), dsc_ihq_dict_fields)
+setdiff(dsc_ihq_dict_fields, colnames(dsc_ihq_unharmonized))
+```
 
 
 
