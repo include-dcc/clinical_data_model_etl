@@ -1,0 +1,95 @@
+---
+title: "Get stats for QC"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+library(skimr)
+
+synLogin()
+
+gs4_deauth()
+```
+
+
+Read in harmonized data
+```{r}
+harmonized_participant <- read_csv(synGet("syn52399152")$path)
+harmonized_condition <- read_csv(synGet("syn52399277")$path)
+```
+
+Columns with enums -> convert to factors
+```{r}
+participant_factor_cols <- c("Family Type", "Family Relationship", "Sex", "Race",
+"Ethnicity", "Down Syndrome Status", "First Patient Engagement Event", 
+"Outcomes Vital Status")
+
+condition_factor_cols <- c("Event Type", "Condition Interpretation", 
+"Condition Status", "Condition Data Source")
+```
+
+Customize skimr to show entire factor label and all levels
+```{r}
+my_skim <- skim_with(factor = sfl(
+  top_counts = ~top_counts(., max_char = 100, max_levels = 100)))
+```
+
+Skim
+```{r}
+harmonized_participant %>% 
+  mutate(`Participant External ID` = as.character(`Participant External ID`),
+         `Family ID` = as.character(`Family ID`)) %>% 
+  mutate(across(all_of(participant_factor_cols), ~as.factor(.x))) %>% 
+  my_skim()
+```
+
+```{r}
+harmonized_condition %>% 
+  mutate(across(all_of(condition_factor_cols), ~as.factor(.x))) %>% 
+  my_skim()
+```
+
+Get enum counts separately
+
+```{r}
+harmonized_participant %>% 
+  mutate(across(all_of(participant_factor_cols), ~as.factor(.x))) %>% 
+  select(`Participant External ID`, all_of(participant_factor_cols)) %>% 
+  pivot_longer(cols = -`Participant External ID`,
+               names_to = "variable",
+               values_to = "value") %>% 
+  count(variable, value) %>% 
+  arrange(variable)
+```
+
+```{r}
+harmonized_condition %>% 
+  mutate(across(all_of(condition_factor_cols), ~as.factor(.x))) %>% 
+  select(`Participant External ID`, all_of(condition_factor_cols)) %>% 
+  pivot_longer(cols = -`Participant External ID`,
+               names_to = "variable",
+               values_to = "value") %>% 
+  count(variable, value) %>% 
+  arrange(variable, value)
+```
+
+```{r}
+harmonized_condition %>% 
+  filter(!is.na(`Measure Unit`))
+```
+
+
+### additional scratch paper
+
+HTP father/mother
+```{r}
+harmonized_participant %>% 
+  filter(`Family Relationship` == "Other")
+
+```
+
+

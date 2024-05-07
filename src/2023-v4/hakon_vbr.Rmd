@@ -95,8 +95,8 @@ Why is there >1 Container of a Collection?
 hakon_vbr %>% 
   select(`Collection ID`, `Collection Container ID`) %>%
   distinct() %>% 
- count(`Collection ID`) %>% 
-  arrange(desc(n))
+ add_count(`Collection ID`) %>% 
+  arrange(desc(n), `Collection ID`)
 ```
 
 **2023-10-12:** Replace old v3 Sample IDs (e.g. aliquot_105366888_parent) 
