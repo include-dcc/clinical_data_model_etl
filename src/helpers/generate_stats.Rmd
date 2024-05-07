@@ -18,6 +18,9 @@ gs4_deauth()
 
 Read in harmonized data
 ```{r}
+# Study Code for filtering all-cohorts datasets
+studycode <- "BRI-DSR" 
+
 harmonized_participant <- read_csv(synGet("syn51216460")$path)
 harmonized_condition <- read_csv(synGet("syn51216464")$path)
 ```
@@ -41,7 +44,7 @@ my_skim <- skim_with(factor = sfl(
 Skim
 ```{r}
 harmonized_participant %>%
-  filter(`Study Code` == "ABC-DS") %>% 
+  filter(`Study Code` == studycode) %>% 
   mutate(`Participant External ID` = as.character(`Participant External ID`),
          `Family ID` = as.character(`Family ID`)) %>% 
   mutate(across(all_of(participant_factor_cols), ~as.factor(.x))) %>% 
@@ -50,7 +53,7 @@ harmonized_participant %>%
 
 ```{r}
 harmonized_condition %>% 
-  filter(`Study Code` == "ABC-DS") %>% 
+  filter(`Study Code` == studycode) %>% 
   mutate(across(all_of(condition_factor_cols), ~as.factor(.x))) %>% 
   my_skim()
 ```
@@ -59,7 +62,7 @@ Get enum counts separately
 
 ```{r}
 harmonized_participant %>% 
-  filter(`Study Code` == "ABC-DS") %>% 
+  filter(`Study Code` == studycode) %>% 
   mutate(across(all_of(participant_factor_cols), ~as.factor(.x))) %>% 
   select(`Participant External ID`, all_of(participant_factor_cols)) %>% 
   pivot_longer(cols = -`Participant External ID`,
@@ -71,7 +74,7 @@ harmonized_participant %>%
 
 ```{r}
 harmonized_condition %>% 
-  filter(`Study Code` == "ABC-DS") %>% 
+  filter(`Study Code` == studycode) %>% 
   mutate(across(all_of(condition_factor_cols), ~as.factor(.x))) %>% 
   select(`Participant External ID`, all_of(condition_factor_cols)) %>% 
   pivot_longer(cols = -`Participant External ID`,
@@ -83,7 +86,7 @@ harmonized_condition %>%
 
 ```{r}
 harmonized_condition %>% 
-  filter(`Study Code` == "ABC-DS") %>% 
+  filter(`Study Code` == studycode) %>% 
   filter(!is.na(`Measure Unit`))
 ```
 
