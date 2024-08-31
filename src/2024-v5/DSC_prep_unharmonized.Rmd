@@ -220,7 +220,7 @@ dsc_id_guid_map_complete %>%
   write_csv(here::here("output", "dsc_guids_2024-03-04.csv"))
 ```
 
-#### UNHARMONIZED DATA
+### 2. UNHARMONIZED DATA
 
 Convo w/ Sujata, 2024-04-11:
 - Leave in birth year (even though redundant)
@@ -277,6 +277,117 @@ setdiff(dsc_demo_dict_fields, colnames(dsc_demo_unharmonized))
 setdiff(colnames(dsc_ihq_unharmonized), dsc_ihq_dict_fields)
 setdiff(dsc_ihq_dict_fields, colnames(dsc_ihq_unharmonized))
 ```
+
+### 3. MULTI-PARTICIPANT FILE INDEX
+
+```{r}
+dsc_demo_unharmonized <- read_csv(synGet("syn58623423")$path)
+dsc_ihq_unharmonized <- read_csv(synGet("syn58623422")$path)
+dsc_datafile <- read_csv(synGet("syn59535643")$path) %>% 
+  mutate(`Sample Global ID` = "",
+         `Sample External ID` = "",
+         `Participant Global ID` = "")
+```
+
+```{r}
+dsc_demo_pts <- dsc_demo_unharmonized %>% 
+  select(patient_id_deid) %>% 
+  mutate(`File Name` = "dsc_demographic_unharmonized_2024-02-26.csv")
+
+dsc_ihq_pts <- dsc_ihq_unharmonized %>% 
+  select(patient_id_deid) %>% 
+  mutate(`File Name` = "dsc_ihq_unharmonized_2024-02-26.csv")
+
+dsc_all_files_pts <- bind_rows(dsc_demo_pts, dsc_ihq_pts) %>% 
+  write_csv(here::here("output", "separate_multiparticipant_index.csv"))
+```
+
+
+```{r}
+dsc_datafile %>% 
+  left_join(dsc_all_files_pts) %>% 
+  mutate(`Participant External ID` = patient_id_deid) %>%
+  select(-patient_id_deid) %>% 
+  write_csv(here::here("output", "datafile_with_participants.csv"))
+  
+```
+
+
+### 4. DIFFS FROM PREVIOUS EXPORTS
+
+```{r}
+dsc_2024_02 <- read_csv(synGet("syn26445516")$path) %>% pull(patient_id)
+
+dsc_2023_01 <- read_csv(synGet("syn26445516", version = 8)$path) %>% pull(patient_id)
+
+dsc_2022_08 <- read_csv(synGet("syn26445516", version = 6)$path) %>%
+  filter(!str_detect(patient_id, "ACK")) %>% 
+  pull(patient_id) %>% as.numeric()
+
+dsc_2022_01 <- read_csv(synGet("syn26445516", version = 3)$path) %>%
+  filter(!str_detect(patient_id, "ACK")) %>% 
+  pull(patient_id) %>% as.numeric()
+
+```
+
+Changes since 2023_01:
+```{r}
+setdiff(dsc_2024_02, dsc_2023_01) #added
+setdiff(dsc_2023_01, dsc_2024_02) #deleted
+```
+
+Changes since 2022_08
+```{r}
+setdiff(dsc_2022_08, dsc_2024_02) #deleted
+```
+
+Changes since 2022_01
+```{r}
+setdiff(dsc_2022_01, dsc_2024_02) #deleted
+```
+
+Full set of deleted participants since inception:
+```{r}
+dsc_all_deleted <- c(setdiff(dsc_2023_01, dsc_2024_02), 
+                     setdiff(dsc_2022_08, dsc_2024_02),
+                     setdiff(dsc_2022_01, dsc_2024_02)) %>% 
+  unique() %>% sort()
+```
+
+```{r}
+dsc_all_deleted %>% str_flatten(collapse = ", ")
+```
+
+
+Get global IDs
+```{r}
+read_csv(here::here("data", 
+                                     "global-descriptors-ds-connect-all.csv")) %>% 
+  filter(fhirResourceType == "Patient",
+         !str_detect(descriptor, "DSC")) %>%
+  mutate(descriptor = as.numeric(descriptor)) %>% 
+  arrange(desc(descriptor)) %>% 
+  filter(descriptor %in% dsc_all_deleted)
+```
+
+Somehow most of these didn't have Global IDs - 
+maybe pre-v3 when we didn't have Global IDs yet?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

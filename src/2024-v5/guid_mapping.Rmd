@@ -17,8 +17,7 @@ gs4_deauth()
 Get GUIDs:
 **NOTE** DSC GUIDs file is complete now - 
 use this, not v3 all_cohorts_participant as some participants have been added/deleted
-- Per Joaquin, need to include ALL participants from cohort, even if they don't
-have GUIDs -> use v3 vall_cohorts_participant for HTP
+Latest HTP GUIDs file from Matt (2024-08-30) now includes all HTP participants
 ```{r}
 #replace #Error# with NA
 dsc_guids <- read_csv(synGet("syn53708715")$path) %>%
@@ -26,62 +25,73 @@ dsc_guids <- read_csv(synGet("syn53708715")$path) %>%
          study_code = "DSC") %>% 
   select(guid, study_code, participant_global_id)
 
-htp_guids <- read_xlsx(synGet("syn53707355")$path) %>% 
-  select(participant_external_id = `Stripped Lab ID`,
+htp_guids <- read_csv(synGet("syn53707355")$path) %>% 
+  select(participant_global_id = globalId,
          guid = GUID)
-
-#htp participants from v4 (includes VBR)
-htp_all_participants <- read_csv(synGet("syn52399152")$path) %>% 
-  select(study_code = `Study Code`,
-         participant_global_id = `Participant Global ID`,
-         participant_external_id = `Participant External ID`)
 ```
 
 Check for dupes:
 ```{r}
-get_dupes(htp_guids, guid) #0
-get_dupes(htp_guids, participant_external_id) #0
+get_dupes(htp_guids, guid) %>%
+  filter(str_detect(guid, "NDAR")) #0
+get_dupes(htp_guids, participant_global_id) #0
 
 get_dupes(dsc_guids, guid) %>%
   filter(str_detect(guid, "NDAR")) #6
+get_dupes(dsc_guids, participant_global_id)
 ```
 
-Add GUIDs to HTP
+Bind DSC/HTP
 ```{r}
-htp_dsc_guids <- htp_all_participants %>% 
-  left_join(htp_guids) %>% 
-  select(guid, study_code, participant_global_id) %>% 
+htp_dsc_guids <- htp_guids %>% 
+  mutate(study_code = "HTP", .before = everything()) %>% 
   bind_rows(dsc_guids)
 ```
 
 Counts:
 - Total HTP participants: 1055
 - Total DSC participants: 3634
-- HTP participants missing GUIDs: 565
+- HTP participants missing GUIDs: 520
 - DSC participants missing GUIDs: 181
 - 52 GUIDs in both DSC and HTP
 
 ```{r}
 htp_dsc_guids %>% 
-  filter(study_code == "HTP" & is.na(guid))
+  filter(study_code == "DSC" & is.na(guid))
 
 htp_dsc_guids %>%
   filter(!is.na(guid)) %>% 
   group_by(guid) %>% 
+  #guids with both DSC and HTP study code
   filter(min(study_code) == "DSC" & max(study_code) == "HTP") %>% 
+  #just to check if one of each study
   add_count(guid) %>% 
-  arrange(desc(n), guid)
+  arrange(desc(n), guid) %>% 
+  pull(guid) %>% 
+  n_distinct()
+
 ```
 
 Write out & upload to Synapse
 ```{r}
 htp_dsc_guids %>% 
-  arrange(guid) %>% 
-  write_csv(here::here("output", "htp_dsc_guids_2024-03-04.csv"))
+  arrange(study_code) %>% 
+  write_csv(here::here("output", "htp_dsc_guids_2024-08-30.csv"))
 ```
 
 
 
+### check Matt's dewrangle IDs
+
+```{r}
+dewrangle <- read_csv(here::here("data", "global-descriptors-htp-all_2024-08-29.csv")) %>% 
+  filter(fhirResourceType == "Patient") %>% 
+  select(descriptor, globalId)
+
+setdiff(dewrangle$globalId, htp_guids$participant_global_id)
+setdiff(htp_guids$participant_global_id, dewrangle$globalId)
+
+```
 
 
 

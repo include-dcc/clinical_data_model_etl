@@ -1,0 +1,53 @@
+---
+title: "Update HTP v4 to match v5 model"
+---
+
+```{r}
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+
+synLogin()
+
+gs4_deauth()
+```
+
+
+Get v4 dataset
+
+```{r}
+htp_v4_participant <- read_csv(synGet("syn52399152")$path)
+```
+
+Family relationships:
+- if FamilyRelationship = Parent & Sex = Male then change to Father
+- if FamilyRelationship = Parent & Sex = Female then change to Mother
+- if FamilyRelationship = Other & FamilyType = Control-only then change to Unrelated control
+- if FamilyRelationship = Other & FamilyType = Other then change to Other relative
+
+```{r}
+htp_v4_participant %>% 
+  mutate(updated_familyrel = case_when(
+    `Family Relationship` == "Parent" & Sex == "Male" ~ "Father",
+    `Family Relationship` == "Parent" & Sex == "Female" ~ "Mother",
+    `Family Relationship` == "Other" & `Family Type` == "Control-only" ~ "Unrelated control",
+    `Family Relationship` == "Other" & `Family Type` == "Other" ~ "Other relative",
+    TRUE ~ `Family Relationship`
+  ), .after = `Family Relationship`) %>% 
+  select(-`Family Relationship`) %>% 
+  rename(`Family Relationship` = updated_familyrel) %>% 
+  write_csv(here::here("output",
+                       "htp_v4_participant_updated_2024-06-21.csv"))
+```
+
+
+
+
+
+
+
+
+
+
+
