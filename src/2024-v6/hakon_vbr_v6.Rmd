@@ -1,0 +1,241 @@
+---
+title: "Hakonarson VBR v6"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(googlesheets4)
+library(janitor)
+
+synLogin()
+```
+
+
+## CHECKS
+
+Get VBR files
+
+```{r}
+hakon_vbr <- read_xlsx(synGet("syn63100119")$path, sheet = "CAG_ALL DATA")
+#hakon_aliquot_map <- read_csv(synGet("syn53355321")$path)
+
+
+hakon_clin_dna <- read_xlsx(synGet("syn44291080")$path)
+hakon_clin_rna <- read_xlsx(synGet("syn44291064")$path)
+
+#delete the last few cols since they are for solid tumors
+hakon_clinical_all <- hakon_clin_dna %>% 
+  rbind(hakon_clin_rna) %>% 
+  select(-(`Days to First Event`:`Tumor resection extent`))
+
+```
+
+Confirm:
+- All sample IDs are unique
+- Every Parent Sample ID is also a Sample ID?
+- Every Sample ID has 1 Aliquot ID?
+
+```{r}
+n_distinct(hakon_vbr$`Sample External ID`) #6768
+n_distinct(hakon_vbr$`Parent Sample External ID`) #2871
+n_distinct(hakon_vbr$`Participant External ID`) #1152
+n_distinct(hakon_clinical_all$`Participant ID`) #1152
+n_distinct(hakon_vbr$`ALQ ID`) #6026
+n_distinct(hakon_clinical_all$`Aliquot ID`) #1524
+
+hakon_vbr %>% get_dupes(`Sample External ID`) #0
+
+# Parent Sample IDs that are also Sample IDs
+hakon_vbr %>% 
+  filter(`Sample External ID` %in% `Parent Sample External ID`) %>% 
+  pull(`Sample External ID`) %>% n_distinct() #1201
+
+# Parent Sample IDs that are NOT Sample IDs
+hakon_vbr %>% 
+  filter(!`Parent Sample External ID` %in% `Sample External ID`) %>%
+  pull(`Parent Sample External ID`) %>% n_distinct() #1670
+
+# Sample ID-ALQ ID pairs
+hakon_vbr %>% get_dupes(`Sample External ID`, `ALQ ID`) #0
+hakon_vbr %>% get_dupes(`Parent Sample External ID`, `ALQ ID`) #0
+hakon_vbr %>% get_dupes(`ALQ ID`) %>% 
+  #filter(str_detect(`Laboratory Procedure`, "pool"))
+  pull(`Laboratory Procedure`) %>% unique()
+
+# So eg. ALQ ID 40035746523 has 6 different Participant IDs & Sample IDs
+# The samples with Lab Procedure == aliquoting/pooling have different Participant IDs
+# Most of the duplicate ALQ IDs have different Sample IDs - are those pooled?
+```
+
+Check if Sample Type > Parent Sample Type > Collection Sample Type combinations make sense
+- I think so? maybe save this for review by James
+```{r}
+hakon_vbr %>% 
+  select(`Collection Sample Type`, `Parent Sample Type`, `Sample Type`, `Laboratory Procedure`) %>% 
+  unique()
+```
+
+Check Participant IDs in vbr vs clinical
+```{r}
+setdiff(hakon_vbr$`Participant External ID`, hakon_clinical_all$`Participant ID`) #0
+setdiff(hakon_clinical_all$`Participant ID`, hakon_vbr$`Participant External ID`) #0
+
+# All Pt IDs in vbr are in clinical data
+hakon_vbr %>% 
+  filter(!`Participant External ID` %in% hakon_clinical_all$`Participant ID`) #0
+```
+
+
+Check ALQ/Aliquot IDs in vbr vs clinical
+```{r}
+# 4 Aliquot IDs are not found among ALQ IDs
+# 78953919 1235817282 1235817277   78944859
+setdiff(hakon_clinical_all$`Aliquot ID`, hakon_vbr$`ALQ ID`)
+
+hakon_vbr_filtered <- hakon_vbr %>% 
+  select(`Participant External ID`, `ALQ ID`, `Sample Type`, `Collection Sample Type`) %>% 
+  unique()
+
+hakon_clinical_filtered <- hakon_clinical_all %>%
+  select(`Participant ID`, `Aliquot ID`, `Analyte Type`, `Sample Composition`) %>% 
+  unique() 
+
+# 3 ALQ IDs have multiple Aliquot IDs
+hakon_vbr_filtered %>% 
+  left_join(hakon_clinical_filtered, by = c("Participant External ID" = "Participant ID")) %>% 
+  select(`ALQ ID`, `Aliquot ID`) %>% 
+  unique() %>% 
+  get_dupes(`ALQ ID`) %>% 
+  filter(dupe_count > 2)
+
+#1394 Aliquot IDs have multiple ALQ IDs
+hakon_vbr_filtered %>% 
+  left_join(hakon_clinical_filtered, by = c("Participant External ID" = "Participant ID")) %>% 
+  select(`ALQ ID`, `Aliquot ID`) %>% 
+  unique() %>% 
+  get_dupes(`Aliquot ID`) %>%
+  #filter(`Aliquot ID` == "1202703232") %>% pull(`ALQ ID`) %>% unique()
+  filter(dupe_count > 2) %>% 
+  pull(`Aliquot ID`) %>% n_distinct()
+```
+
+```{r}
+
+
+# Sample/Analyte Type match when ALQ/Aliquot ID match
+hakon_vbr_filtered %>% 
+  left_join(hakon_clinical_filtered, by = c("Participant External ID" = "Participant ID")) %>% 
+  select(`Participant External ID`, `ALQ ID`, `Aliquot ID`, `Sample Type`, `Analyte Type`, `Collection Sample Type`, `Sample Composition`) %>% 
+  filter(`ALQ ID` == `Aliquot ID`) %>% 
+  filter(`Sample Type` != `Analyte Type`) 
+
+# For matching ALQ/Aliquot pairs, 
+# Most Collection Sample/Composition mismatches are Blood/PBMC,  which is fine
+# but 3 aliquots/ALQ have Saliva vs PBMC
+# 373942436, 373942405, 373942444
+hakon_vbr_filtered %>% 
+  left_join(hakon_clinical_filtered, by = c("Participant External ID" = "Participant ID")) %>% 
+  select(`Participant External ID`, `ALQ ID`, `Aliquot ID`, `Sample Type`, `Analyte Type`, `Collection Sample Type`, `Sample Composition`) %>% 
+  filter(`ALQ ID` == `Aliquot ID`) %>% 
+  filter(`Collection Sample Type` != `Sample Composition`)  %>% 
+  filter(`Collection Sample Type` == "Saliva")
+
+
+```
+
+
+
+=============================
+### OLD v4 stuff
+
+1/19/24: Adding in new aliquot mapping
+
+Check aliquot mapping vs biospecimen catalog
+```{r}
+n_distinct(hakon_aliquot_map$participant_id) #1140
+
+no_aliquot_map <- setdiff(hakon_vbr$`Participant External ID orig`, hakon_aliquot_map$participant_id)
+```
+
+There are 12 Participants that don't have aliquot mappings
+```{r}
+hakon_vbr %>% 
+  left_join(hakon_aliquot_map,
+            by = c("Participant External ID orig" = "participant_id")) %>% 
+  filter(is.na(encrypted_container_id)) %>% 
+  pull(`Participant External ID orig`) %>% unique()
+```
+
+Get clinical data for those Participants:
+```{r}
+hakon_clinical_all %>% 
+  filter(`Participant ID` %in% no_aliquot_map) %>% 
+  select(`Participant ID`, `Aliquot ID`, `Sample Composition`, `Analyte Type`) %>% 
+  write_csv(here::here("output", "hakon_no_aliquot_mapping.csv"))
+```
+
+
+Excel
+- make sure any blank Volume Unit or Concentration Unit doesn't also have a number
+- if Sample Availability = No then Container Availability should also = No
+
+Check that every Collection and Parent Sample is also a Sample
+Check that all Container IDs are unique
+```{r}
+n_distinct(hakon_vbr$`Sample ID (Calc)`) #v5=4151 v7=4151
+n_distinct(hakon_vbr$`Container ID`) #10855
+n_distinct(hakon_vbr$`Parent Sample ID (Calc)`) #v5=4473 v7=3659
+n_distinct(hakon_vbr$`Parent Sample Container ID`) #4473 #1588
+n_distinct(hakon_vbr$`Collection ID`) #1152
+n_distinct(hakon_vbr$`Collection Container ID`) #1588
+
+```
+
+Why is there >1 Container of a Collection?
+```{r}
+hakon_vbr %>% 
+  select(`Collection ID`, `Collection Container ID`) %>%
+  distinct() %>% 
+ add_count(`Collection ID`) %>% 
+  arrange(desc(n), `Collection ID`)
+```
+
+**2023-10-12:** Replace old v3 Sample IDs (e.g. aliquot_105366888_parent) 
+with new Sample IDs from their VBR manifest (e.g. KFDS0451188158_Proband_DNA)
+These will eventually be replaced with newer Sample IDs without spaces
+
+```{r}
+hakon_datafiles_v3 <- read_csv(synGet("syn52660168")$path)
+
+hakon_dewrangle_specimens <- read_csv(here::here("data", "global-descriptors-new-x01-hakon_2023-10-12.csv")) %>% 
+  filter(fhir_resource_type == "Specimen")
+```
+
+hakon biospecimens draft - get container IDs
+```{r}
+hakon_biospecimen_draft <- read_csv(here::here("output", "hakon_biospecimen_DRAFT.csv"))
+```
+
+```{r}
+hakon_datafiles_v4 <- hakon_datafiles_v3 %>% 
+  left_join(hakon_biospecimen_draft %>% 
+              select(`Sample External ID`, `Sample Global ID`, 
+                     `Container External ID`, `Container Global ID`) %>% 
+              mutate(`Container External ID` = paste0("KFDS", `Container External ID`, sep = "")),
+            by = "Sample External ID")
+
+hakon_datafiles_v4 %>%
+  left_join(hakon_vbr %>% select(`Sample ID (Calc)`, `Container ID`),
+            by = c("Container External ID" = "Container ID")) %>% view()
+
+```
+
+
+
+
+
+
