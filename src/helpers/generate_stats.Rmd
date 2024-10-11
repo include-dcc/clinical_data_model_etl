@@ -19,10 +19,10 @@ gs4_deauth()
 Read in harmonized data
 ```{r}
 # Study Code for filtering all-cohorts datasets
-studycode <- "BRI-DSR" 
+studycode <- "DSC" 
 
-harmonized_participant <- read_csv(synGet("syn51216460")$path)
-harmonized_condition <- read_csv(synGet("syn51216464")$path)
+harmonized_participant <- read_csv(synGet("syn55998061")$path)
+harmonized_condition <- read_csv(synGet("syn56666593")$path)
 ```
 
 Columns with enums -> convert to factors
@@ -90,6 +90,32 @@ harmonized_condition %>%
   filter(!is.na(`Measure Unit`))
 ```
 
+### BIOSPECIMEN
+
+```{r}
+harmonized_biospecimen <- read_csv(synGet("syn52599895")$path)
+
+biospecimen_factor_cols <- c("Sample Type", "Parent Sample Type", 
+"Collection Sample Type", "Laboratory Procedure", "Biospecimen Storage", "Sample Availability", "Container Availability")
+```
+
+
+```{r}
+length(unique(harmonized_biospecimen$`Container External ID`))
+```
+
+```{r}
+harmonized_biospecimen %>% 
+  #filter(`Study Code` == studycode) %>% 
+  mutate(across(all_of(biospecimen_factor_cols), ~as.factor(.x))) %>% 
+  select(`Participant External ID`, all_of(biospecimen_factor_cols)) %>% 
+  pivot_longer(cols = -`Participant External ID`,
+               names_to = "variable",
+               values_to = "value") %>% 
+  count(variable, value) %>% 
+  arrange(variable, value)
+```
+
 
 ### additional scratch paper
 
@@ -98,6 +124,15 @@ HTP father/mother
 harmonized_participant %>% 
   filter(`Family Relationship` == "Other")
 
+```
+
+Unique Family IDs
+```{r}
+#read_csv(synGet("syn52399152")$path) %>% 
+harmonized_participant %>% 
+  filter(`Study Code` == "X01-Hakonarson") %>% 
+  filter(!is.na(`Family ID`)) %>% 
+  pull(`Family ID`) %>% n_distinct()
 ```
 
 

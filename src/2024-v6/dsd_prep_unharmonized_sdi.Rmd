@@ -1,0 +1,62 @@
+---
+title: "DS-DETERMINED Unharmonized Data Prep - SDI"
+---
+
+```{r}
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(janitor)
+
+synLogin()
+
+source(here::here("src/helpers/prep_unharmonized_data.R"))
+```
+
+# Read in data
+
+```{r}
+sdi_data <- read_csv(synGet("syn61348988")$path)
+sdi_dict <- read_xlsx(synGet("syn61348987")$path)
+```
+
+# Check for duplicate Participant IDs
+
+```{r}
+sdi_data %>% get_dupes(record_id) #0
+```
+
+# Get fields that are in data but not in dictionary
+--> request from contributor
+
+```{r}
+setdiff(colnames(sdi_data), tolower(sdi_dict$`Question identifier`)) %>% 
+  str_c(collapse = ", ")
+```
+
+# Get fields that are in dict but not in data
+- demog9 = city --> ok that it's removed
+
+```{r}
+setdiff(tolower(sdi_dict$`Question identifier`), colnames(sdi_data))
+```
+
+# In Excel, check free text fields for PHI
+
+free text fields - no PHI found
+- demog11_other
+- demog12_other
+- demog15a
+- demog2_other
+- demog5a
+- demog6a
+- demog16_other (not in dict)
+
+# Get unique values from all columns and compare enums/ranges to dictionary
+
+```{r}
+get_all_unique_values(sdi_data) %>% 
+  write_csv(here::here("output", "sdi_data_unique.csv"))
+```
+
+
