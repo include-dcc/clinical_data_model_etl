@@ -24,5 +24,5 @@ get_all_unique_values <- function(dataset) {
     unique() %>%   
     map(\(x) get_unique_values_by_coltype(x, dataset = dataset)) %>% 
     bind_rows() %>% 
-    arrange(tolower(original_header))
+    arrange(match(original_header, colnames(dataset)))
 }
