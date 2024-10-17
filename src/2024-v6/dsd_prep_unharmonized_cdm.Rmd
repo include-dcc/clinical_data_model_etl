@@ -1,0 +1,109 @@
+---
+title: "DS-DETERMINED Unharmonized Data Prep - CDM"
+---
+
+```{r}
+library(tidyverse)
+library(synapser)
+library(readxl)
+library(janitor)
+
+synLogin()
+
+source(here::here("src/helpers/prep_unharmonized_data.R"))
+```
+
+# Read in data
+
+- condition syn61348974
+- death syn61348975
+- demographic syn61348976
+- diagnosis syn61348977
+- encounter syn61348966
+- immunization syn61348967
+- lab_result_cm syn61348968
+- med_admin syn61348969
+- prescribing syn61348970
+- pro_cm syn61348971
+- procedures syn61348972
+- vital syn61348973
+
+```{r}
+uh_data <- read_csv(synGet("syn61348973")$path)
+uh_dict <- read_xlsx(synGet("syn61348956")$path, 
+                     sheet = "FIELDS") %>% 
+  filter(TABLE_NAME == "VITAL")
+```
+
+# Check for duplicate Participant IDs
+
+- Condition: does not apply; multiple rows per participant
+- Death: 0 (only 3 pts)
+- Demopgrahic: 0
+- Diagnosis: NA
+- Encounter: NA
+- Immunization: NA
+- Lab Result: NA
+- Med: NA
+- Prescribing: NA
+- Pro: NA
+- Procedures: NA
+- Vital: 
+
+```{r}
+uh_data %>% get_dupes(patid)
+```
+
+# Get fields that are in data but not in dictionary
+--> request from contributor
+
+- Condition: age_at_visit (OK - removes dates PHI)
+- Death: age_at_death
+- Demographic: age_in_years
+- Diagnosis: age_at_diagnosis
+- Encounter: age_at_admit
+- Immunization: age_at_vx_record
+- Lab Result: lab_name (all NA), age_at_order
+- Med Admin: age_at_med_started
+- Prescribing: age_at_order
+- Pro: pro_loinc, age_at_pro
+- Procedures: age_at_procedure
+- Vital: age_at_measure
+
+```{r}
+setdiff(colnames(uh_data), tolower(uh_dict$FIELD_NAME)) %>% 
+  str_c(collapse = ", ")
+```
+
+# Get fields that are in dict but not in data
+(no need to request from contributor unless any seem like oversights)
+
+```{r}
+setdiff(tolower(uh_dict$FIELD_NAME), colnames(uh_data))
+```
+
+
+# Get unique values from all columns
+# Check for PHI
+# compare enums/ranges to dictionary
+
+- Condition: no PHI; enums ok
+- Death: Ok
+- Demog: no PHI; what does blank mean (as opposed to NI, UN, etc)
+- Diagnosis: no PHI; pt SD-00635 has age -6
+- Encounter: several negative age_at_admit; facilityid has names of clinics
+(not PHI, flag for contributor but let them decide)
+- Immunization: Flag vx_provider (first initial/last name)
+- Lab Result: Ok
+- Med: Ok
+- Prescribing: Ok
+- Pro: Ok
+- Procedures: Ok
+- Vital: Ok
+
+```{r}
+get_all_unique_values(uh_data) %>%
+  write_csv(here::here("output", "dsd_cdm_vital_unique.csv"))
+```
+
+       
