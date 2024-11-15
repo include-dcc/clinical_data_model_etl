@@ -57,7 +57,7 @@ uh_data %>% get_dupes(patid)
 # Get fields that are in data but not in dictionary
 --> request from contributor
 
-- Condition: age_at_visit (OK - removes dates PHI)
+- Condition: age_at_visit 
 - Death: age_at_death
 - Demographic: age_in_years
 - Diagnosis: age_at_diagnosis

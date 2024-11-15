@@ -53,4 +53,58 @@ get_all_unique_values(dsc_data) %>%
   write_csv(here::here("output", "dsd_dsc_data_unique.csv"))
 ```
 
+# check if any of the un-consented DSC participants are in this DSD dataset
+
+```{r}
+dsc_withdrawn <- c(3191, 3362, 3419, 3427, 3574, 3638, 3675, 3678, 3754, 3768, 3798, 3838, 3971, 4012, 4188, 4215, 4239, 4310, 4377, 4393, 4453, 4559, 4606, 4628, 4659, 4681, 4761, 4834, 4875, 4960, 4964, 5004, 5018, 5093, 5140, 5175, 5202, 5264, 5294, 5322, 5391, 5433, 5539, 5585, 5670, 5794, 5869, 5892, 5932, 6015, 6057, 6248, 6295, 6314, 6416, 6468, 6500, 6510, 6695, 6779, 6923, 6993, 7007, 7217, 7296, 10485, 10552, 10563, 10608, 10724, 10855, 11318, 11507, 11655, 11832, 12284, 12308, 12529, 12688, 12856, 12857, 12881, 12887, 13026, 13046, 13194)
+
+dsd_dsc <- read_xlsx(synGet("syn61348982")$path) %>% 
+  pull(patient_id)
+```
+
+
+```{r}
+length(dsd_dsc) #105
+length(dsc_withdrawn) #86
+
+intersect(dsd_dsc, dsc_withdrawn) #0
+
+length(setdiff(dsc_withdrawn, dsd_dsc)) #86
+length(setdiff(dsd_dsc, dsc_withdrawn)) #104 --> why??
+
+# figuring out why
+read_xlsx(synGet("syn61348982")$path) %>% 
+  filter(patient_id %in% dsc_withdrawn)
+
+read_xlsx(synGet("syn61348982")$path) %>% 
+  get_dupes(patient_id) # 12849 -> SB-00034 and SB01930 :(((
+
+read_xlsx(synGet("syn61348982")$path) %>% 
+  get_dupes(subject_ID) #0
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
