@@ -321,7 +321,9 @@ bind_rows(teamds_bmi_harmonized, teamds_structured_conditions_harmonized) %>%
 ```{r}
 condition_lookup_teamds <- condition_codes_v6 %>% 
   filter(study == "TEAM-DS") %>% 
-  unnest(source_column_value)
+  unnest(source_column_value) %>% 
+  select(-Notes) %>% 
+  distinct()
 
 condition_cols <- condition_lookup_teamds %>% pull(source_column) %>% unique()
 ```
@@ -398,7 +400,7 @@ teamds_measures <- teamds_clinical_data %>%
 bind_rows(teamds_measures, teamds_conditions) %>%
   arrange(`Participant External ID`) %>% 
   mutate(across(everything(), ~replace_na(.x, ""))) %>% 
-  write_csv(here::here("output", "teamds_conditions_harmonized_2024-11-13.csv"))
+  write_csv(here::here("output", "teamds_conditions_harmonized_2024-11-15.csv"))
 ```
 
 
