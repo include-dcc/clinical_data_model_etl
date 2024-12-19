@@ -20,7 +20,7 @@ synLogin()
 Get VBR files
 
 ```{r}
-hakon_vbr <- read_xlsx(synGet("syn63100119")$path, sheet = "CAG_ALL DATA")
+hakon_vbr <- read_xlsx(synGet("syn64314143")$path, sheet = "CAG_ALL DATA")
 #hakon_aliquot_map <- read_csv(synGet("syn53355321")$path)
 
 
@@ -40,11 +40,11 @@ Confirm:
 - Every Sample ID has 1 Aliquot ID?
 
 ```{r}
-n_distinct(hakon_vbr$`Sample External ID`) #6768
-n_distinct(hakon_vbr$`Parent Sample External ID`) #2871
+n_distinct(hakon_vbr$`Sample External ID`) #6772
+n_distinct(hakon_vbr$`Parent Sample External ID`) #2874
 n_distinct(hakon_vbr$`Participant External ID`) #1152
 n_distinct(hakon_clinical_all$`Participant ID`) #1152
-n_distinct(hakon_vbr$`ALQ ID`) #6026
+n_distinct(hakon_vbr$`ALQ ID`) #6016
 n_distinct(hakon_clinical_all$`Aliquot ID`) #1524
 
 hakon_vbr %>% get_dupes(`Sample External ID`) #0
@@ -57,11 +57,11 @@ hakon_vbr %>%
 # Parent Sample IDs that are NOT Sample IDs
 hakon_vbr %>% 
   filter(!`Parent Sample External ID` %in% `Sample External ID`) %>%
-  pull(`Parent Sample External ID`) %>% n_distinct() #1670
+  pull(`Parent Sample External ID`) %>% n_distinct() #1673
 
 # Sample ID-ALQ ID pairs
 hakon_vbr %>% get_dupes(`Sample External ID`, `ALQ ID`) #0
-hakon_vbr %>% get_dupes(`Parent Sample External ID`, `ALQ ID`) #0
+hakon_vbr %>% get_dupes(`Parent Sample External ID`, `ALQ ID`) #1109
 hakon_vbr %>% get_dupes(`ALQ ID`) %>% 
   #filter(str_detect(`Laboratory Procedure`, "pool"))
   pull(`Laboratory Procedure`) %>% unique()
@@ -75,8 +75,9 @@ Check if Sample Type > Parent Sample Type > Collection Sample Type combinations 
 - I think so? maybe save this for review by James
 ```{r}
 hakon_vbr %>% 
-  select(`Collection Sample Type`, `Parent Sample Type`, `Sample Type`, `Laboratory Procedure`) %>% 
-  unique()
+  select(`Parent Sample Type`, `Sample Type`, `Laboratory Procedure`) %>% 
+  unique() %>%
+  arrange(`Parent Sample Type`, `Sample Type`) %>%  view()
 ```
 
 Check Participant IDs in vbr vs clinical

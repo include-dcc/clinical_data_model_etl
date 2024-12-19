@@ -352,7 +352,8 @@ teamds_conditions <- teamds_clinical_data %>%
          measureValue = "",
          measureUnit = "") %>%
   select(all_of(condition_schemalabels)) %>%
-  setNames(condition_displaynames)
+  setNames(condition_displaynames) %>% 
+  distinct()
 ```
 
 Measures
@@ -396,12 +397,48 @@ teamds_measures <- teamds_clinical_data %>%
   setNames(condition_displaynames)
 ```
 
+
 ```{r}
-bind_rows(teamds_measures, teamds_conditions) %>%
+teamds_condition_harmonized <- bind_rows(teamds_measures, teamds_conditions) %>%
   arrange(`Participant External ID`) %>% 
-  mutate(across(everything(), ~replace_na(.x, ""))) %>% 
-  write_csv(here::here("output", "teamds_conditions_harmonized_2024-11-15.csv"))
+  mutate(across(everything(), ~replace_na(.x, ""))) 
 ```
+
+Add Global IDs from Participant
+
+```{r}
+teamds_participant <- read_csv(synGet("syn55843095")$path) %>% 
+  mutate(`Participant External ID` = as.character(`Participant External ID`))
+
+teamds_condition_harmonized %>%
+  select(-`Participant Global ID`) %>% 
+  left_join(teamds_participant %>% 
+              select(`Participant External ID`, `Participant Global ID`),
+            join_by(`Participant External ID`)) %>% 
+  relocate(`Participant Global ID`, .before = `Participant External ID`) %>% 
+  write_csv(here::here("output", "teamds_conditions_harmonized_2024-12-18.csv"))
+``` 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
