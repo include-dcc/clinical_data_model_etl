@@ -1,0 +1,290 @@
+---
+title: "BrainPower v6 Harmonization"
+author: "Ann Holmes"
+format: html
+---
+
+## Load in DD and Relevant Data
+
+```{r}
+require(tidyverse)
+require(readxl)
+setwd("C:/Users/holmea9/OneDrive - VUMC/Documents/BrainPower Harmonization/BrainPower v6/")
+# Load in DD and relevant data for Participants and Conditions harmonization
+Brain_Power_Data_Dictionary <- read_csv("Brain Power Data Dictionary.csv") # syn62665625
+Demographics <- read_csv("Demographics.csv") # syn62146207
+Age_at_Event_and_Latency <- read_csv("Age at Event and Latency.csv")
+Health_Conditions <- read_csv("Health Conditions.csv") # syn62146210
+Anthropometrics <- read_csv("Anthropometrics.csv") # syn62146205
+
+global_descriptors_brainpower_all <- read_csv("global-descriptors-brainpower-all.csv", 
+    col_types = cols(descriptor = col_double())) # From Dewrangle
+
+global_descriptors_brainpower_all <- global_descriptors_brainpower_all %>% rename_at("descriptor", ~ "Participant External ID")
+```
+
+## Participants Data
+
+```{r}
+Demographics_annotated <- Demographics %>%
+  mutate(gender = case_when(gender == 1 ~ "Male",
+                            gender == 2 ~ "Female")) %>%
+  mutate(ethnicity = case_when(ethnicity == 1 ~ "Not Hispanic or Latino",
+                               ethnicity == 2 ~ "Hispanic or Latino")) %>%
+  mutate(race = case_when(race == 1 ~ "American Indian or Alaska Native",
+                          race == 2 ~ "Asian",
+                          race == 3 ~ "Native Hawaiian or Other Pacific Islander",
+                          race == 4 ~ "Black or African American",
+                          race == 5 ~ "White",
+                          race == 6 ~ "More than one race")) %>%
+  left_join(Age_at_Event_and_Latency, by = c("id", "timepoint")) %>%
+  select(-c(timepoint, level_support, age_cog:mri_latency))
+
+colnames(Demographics_annotated) <- c("Participant External ID", "Sex", "Race", "Ethnicity", "Age at First Patient Engagement")
+```
+
+```{r}
+BrainPower_Participants <- Demographics_annotated %>%
+  mutate(`Study Code` = "BrainPower", .before = `Participant External ID`) %>%
+  mutate(`Participant Global ID` = "", .after = `Study Code`) %>%
+  mutate(`Family ID` = "", .after = `Participant External ID`) %>%
+  mutate(`Family Type` = "Proband-only", .after = `Family ID`) %>%
+  mutate(`Father ID` = "", .after = `Family Type`) %>%
+  mutate(`Mother ID` = "", .after = `Father ID`) %>%
+  mutate(`Sibling ID` = "", .after = `Mother ID`) %>%
+  mutate(`Other Family Member ID` = "", .after = `Sibling ID`) %>%
+  mutate(`Family Relationship` = "Proband", .after = `Other Family Member ID`) %>%
+  mutate(`Down Syndrome Status` = "T21", .after = Ethnicity) %>%
+  mutate(`First Patient Engagement Event` = "Enrollment", .after = `Age at First Patient Engagement`) %>%
+  mutate(`Outcomes Vital Status` = "Alive", .after = `First Patient Engagement Event`) %>%
+  mutate(`Age at Last Vital Status` = "")
+```
+
+```{r}
+# Add in timepoint 5 as the age at last vital status
+BrainPower_Participants <- BrainPower_Participants %>%
+  left_join(Age_at_Event_and_Latency %>% filter(timepoint == 5) %>% rename_at("id", ~"Participant External ID"), by = "Participant External ID") %>%
+  mutate(`Age at Last Vital Status` = age_at_visit) %>%
+  select(-c(timepoint:mri_latency))
+
+# Add in Participant Global IDs
+BrainPower_Participants <- BrainPower_Participants %>%
+  left_join(global_descriptors_brainpower_all, by = "Participant External ID") %>%
+  mutate(`Participant Global ID` = globalId) %>%
+  select(-c(fhirResourceType:createdBy))
+
+BrainPower_Participants$`Age at Last Vital Status` <- ifelse(is.na(BrainPower_Participants$`Age at Last Vital Status`), BrainPower_Participants$`Age at First Patient Engagement`, BrainPower_Participants$`Age at Last Vital Status`)
+```
+
+```{r}
+write_csv(BrainPower_Participants, file = "BrainPower_Participants_v6.csv")
+```
+
+```{r eval=FALSE}
+diffr("BrainPower_Participants_v6_draft.csv", "BrainPower_participants_GlobalID_15Apr2024.csv")
+
+library(readxl)
+DCC_Demographic_and_Health_History_2024_04_11 <- read_excel("BrainPower Harmonization/BrainPower v5/DCC Demographic and Health History 2024-04-11.xlsx")
+
+DCC_Demographic_and_Health_History_2024_04_11 <- DCC_Demographic_and_Health_History_2024_04_11 %>% rename_at("record_id", ~"Participant External ID")
+
+BrainPower_Age_Diff <- BrainPower_Participants %>% 
+  select(`Participant External ID`, `Age at First Patient Engagement`, `Age at Last Vital Status`) %>%
+  left_join(BrainPower_participants_GlobalID_15Apr2024 %>% select(`Participant External ID`, `Age at First Patient Engagement`), by = "Participant External ID") %>%
+  left_join(DCC_Demographic_and_Health_History_2024_04_11 %>% select(`Participant External ID`, age), by = "Participant External ID")
+
+colnames(BrainPower_Age_Diff) <- c("id", "age_t1_Aug2024", "age_t5_Aug2024", "age_April2024", "raw_age_April2024")
+
+write_csv(BrainPower_Age_Diff, file = "BrainPower_v6_Age_Differences.csv")
+```
+
+## Conditions Data 
+
+```{r}
+# Pivot conditions to long & join with DD terms
+Health_Conditions_long <- Health_Conditions %>% 
+  pivot_longer(cols = heart_condition:hypothyroidism, values_to = "condition_status", names_to = "variable") %>%
+  left_join(Brain_Power_Data_Dictionary %>% filter(table == "Health Conditions"), by = "variable") %>%
+  select(-table)
+
+Anthropometrics_long <- Anthropometrics %>% 
+  pivot_longer(cols = height:resting_hr, names_to = "variable", values_to = "measurement") %>%
+  left_join(Brain_Power_Data_Dictionary %>% 
+  filter(table == "Anthropometrics"), by = "variable") %>%
+  select(-c(table))
+```
+
+### Extract Unique Conditions Terms
+
+```{r}
+# Write out the unique conditions to be mapped by the modeling team
+Health_Conditions_Unique <- Health_Conditions_long %>%
+  distinct(variable, .keep_all = TRUE) %>%
+  select(-c(condition_status, id, timepoint))
+
+Anthropometrics_long_unique <- Anthropometrics_long %>%
+  distinct(variable, .keep_all = TRUE) %>%
+  select(-c(id, measurement, timepoint))
+
+# Combine anthropometrics and health conditions data
+Conditions_unique <- rbind.data.frame(Health_Conditions_Unique, Anthropometrics_long_unique)
+```
+
+```{r}
+write_csv(Conditions_unique, file = "BrainPower_unique_conditions.csv")
+```
+
+```{r}
+# Join age at timepoint information
+Anthropometrics_long <- Anthropometrics_long %>% 
+  left_join(Age_at_Event_and_Latency, by = c("id", "timepoint")) %>%
+  select(-(age_cog:mri_latency))
+
+# Make a Conditions table with measurements from anthropometric data
+BrainPower_measurements <- Anthropometrics_long %>% mutate(`Study Code` = "BrainPower", .before = id) %>%
+  mutate(`Participant Global ID` = "", .after = `Study Code`) %>%
+  mutate(`Event ID` = timepoint , .after = `Participant Global ID`) %>%
+  mutate(`Event Type` = "Visit", .after = `Event ID`) %>%
+  mutate(`Condition or Measure Source Text` = variable) %>%
+  mutate(`Age At Condition or Measure Observation` = age_at_visit, .after = `Condition or Measure Source Text`) %>%
+  mutate(`Condition Interpretation`= "Observed", .after = `Age At Condition or Measure Observation`) %>%
+  mutate(`Condition Status` = "") %>%
+  mutate(`Condition Data Source` = "Clinical") %>% 
+  mutate(`HPO Label` = "") %>%
+  mutate(`HPO Code` = "") %>%
+  mutate(`MONDO Label` = "") %>%
+  mutate(`MONDO Code` = "") %>%
+  mutate(`MAXO Label` = "") %>%
+  mutate(`MAXO Code` = "") %>%
+  mutate(`Other Label` = "") %>%
+  mutate(`Other Code` = "") %>%
+  mutate(`Measure Value` = measurement) %>%
+  mutate(`Measure Unit` = case_when(`Condition or Measure Source Text`== "height" ~ "cm",
+                                    `Condition or Measure Source Text`== "weight" ~ "kg",
+                                    `Condition or Measure Source Text`== "bmi" ~ "kg/m^2",
+                                    `Condition or Measure Source Text`== "waist" ~ "cm",
+                                    `Condition or Measure Source Text`== "sbp" ~ "mmHg",
+                                    `Condition or Measure Source Text`== "dbp" ~ "mmHg",
+                                    `Condition or Measure Source Text`== "resting_hr" ~ "bpm")) %>%
+  rename_at("id", ~"Participant External ID") %>%
+  relocate("Participant External ID", .after = `Participant Global ID`) %>%
+  select(-c(variable, timepoint, measurement, label, age_at_visit)) %>% 
+  drop_na(`Measure Value`) # Remove missing values from the measurement value column
+
+
+# Round off the measurement values to two decimal points
+BrainPower_measurements$`Measure Value` <- round(as.numeric(BrainPower_measurements$`Measure Value`), digits = 1)
+```
+
+
+```{r}
+# Join age at timepoint information
+Health_Conditions_long <- Health_Conditions_long %>% 
+  left_join(Age_at_Event_and_Latency, by = c("id", "timepoint")) %>%
+  select(-(age_cog:mri_latency)) %>%
+  filter(condition_status == 1) # only keep positive assertions
+
+# Make another conditions table with reported health conditions
+BrainPower_health_conditions <- Health_Conditions_long %>%
+  mutate(`Study Code` = "BrainPower", .before = id) %>%
+  mutate(`Participant Global ID` = "", .after = `Study Code`) %>%
+  mutate(`Event ID` = timepoint , .after = `Participant Global ID`) %>%
+  mutate(`Event Type` = "Visit", .after = `Event ID`) %>%
+  mutate(`Condition or Measure Source Text` = variable) %>%
+  mutate(`Age At Condition or Measure Observation` = "", .after = `Condition or Measure Source Text`) %>%
+  mutate(`Condition Interpretation`= "Observed", .after = `Age At Condition or Measure Observation`) %>%
+  mutate(`Condition Status` = "History Of") %>%
+  mutate(`Condition Data Source` = "Self-reported") %>% 
+  mutate(`HPO Label` = "") %>%
+  mutate(`HPO Code` = "") %>%
+  mutate(`MONDO Label` = "") %>%
+  mutate(`MONDO Code` = "") %>%
+  mutate(`MAXO Label` = "") %>%
+  mutate(`MAXO Code` = "") %>%
+  mutate(`Other Label` = "") %>%
+  mutate(`Other Code` = "") %>%
+  mutate(`Measure Value` = "") %>%
+  mutate(`Measure Unit` = "") %>%
+  rename_at("id", ~"Participant External ID") %>%
+  relocate("Participant External ID", .after = `Participant Global ID`) %>%
+  select(-c(timepoint, variable, label, age_at_visit, condition_status))
+
+BrainPower_Harmonized_Conditions <- rbind.data.frame(BrainPower_health_conditions, BrainPower_measurements)
+```
+
+```{r}
+# Add Participant Global IDs to the data frame
+BrainPower_Harmonized_Conditions <- BrainPower_Harmonized_Conditions %>%
+  left_join(global_descriptors_brainpower_all, by = "Participant External ID") %>%
+  mutate(`Participant Global ID` = globalId) %>%
+  select(-c(fhirResourceType:createdBy))
+```
+
+```{r}
+# Import and join the annotated conditions
+BrainPower_unique_conditions_Annotated_PL <- read_excel("~/BrainPower Harmonization/BrainPower v6/BrainPower_unique_conditions-Annotated PL.xlsx")
+
+
+BrainPower_Harmonized_Conditions_annotated <- BrainPower_Harmonized_Conditions %>%
+  select(-c(`HPO Label`:`Other Code`)) %>%
+  rename_at("Condition or Measure Source Text", ~"source_column") %>%
+  left_join(BrainPower_unique_conditions_Annotated_PL, by = "source_column")
+
+BrainPower_Harmonized_Conditions_annotated <- BrainPower_Harmonized_Conditions_annotated %>%
+  select(-c(`PL Notes`, mondo_result_match_type, hpo_result_match_type, UUID, study)) %>%
+  relocate(c(hpoLabel:otherCode), .after = `Condition Data Source`) %>%
+  rename_at("description", ~"Condition or Measure Source Text") %>%
+  select(-c(source_column, source_column_value, conditionMeasureSourceText)) %>%
+  rename_at("hpoLabel", ~"HPO Label") %>%
+  rename_at("hpoCode", ~"HPO Code") %>%
+  rename_at("mondoLabel", ~"MONDO Label") %>%
+  rename_at("mondoCode", ~"MONDO Code") %>%
+  rename_at("maxoLabel", ~"MAXO Label") %>%
+  rename_at("maxoCode", ~"MAXO Code") %>%
+  rename_at("otherLabel", ~"Other Label") %>%
+  rename_at("otherCode", ~"Other Code") %>%
+  mutate(`Condition Status` = "History Of")
+
+
+BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text` <- str_replace_all(BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text`, "\\(0: No; 1: Yes\\)\\.", "- Yes")
+
+BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text` <- str_replace_all(BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text`, "\\(0: No; 1: Yes\\)", "- Yes")
+
+BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text` <- str_replace_all(BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text`, "\\(e.g. hole in their heart, or a missing heart chamber, or valve problem; 0: No; 1: Yes\\)\\?", "- Yes")
+
+BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text` <- str_replace_all(BrainPower_Harmonized_Conditions_annotated$`Condition or Measure Source Text`, "\\(0: No; 1: Yes\\)\\?", "- Yes")
+```
+
+```{r}
+# Make whole data frame character values
+BrainPower_Harmonized_Conditions_annotated <- BrainPower_Harmonized_Conditions_annotated %>% mutate_all(as.character)
+
+# Replace all NA cells with empty strings
+BrainPower_Harmonized_Conditions_annotated[is.na(BrainPower_Harmonized_Conditions_annotated)] <- ""
+```
+
+```{r}
+BrainPower_conditions_annotation_no_heart_15Apr2024 <- read_csv("~/BrainPower Harmonization/BrainPower v5/BrainPower_Harmonized_to_Eric/BrainPower_conditions_annotation_no_heart_15Apr2024.csv")
+
+DS_Conditions <- BrainPower_conditions_annotation_no_heart_15Apr2024 %>% 
+  mutate_all(as.character) %>% 
+  filter(`MONDO Label` == "Down syndrome") %>%
+  mutate(`Participant Global ID` = "", .after = `Study Code`) %>%
+  mutate(`Event ID` = 1) %>%
+  mutate(`Event Type` = "Visit") %>%
+  mutate(`Age At Condition or Measure Observation` = "") %>%
+  relocate(`Condition or Measure Source Text`, .after = `Event Type`) %>%
+  mutate(`Condition or Measure Source Text` = "Diagnosis of Down syndrome - Yes") %>%
+  left_join(global_descriptors_brainpower_all %>% mutate_all(as.character), by = "Participant External ID") %>%
+  mutate(`Participant Global ID` = globalId) %>%
+  select(-c(fhirResourceType:createdBy))
+
+BrainPower_Conditions_Final <- rbind.data.frame(BrainPower_Harmonized_Conditions_annotated, DS_Conditions)
+
+BrainPower_Conditions_Final[is.na(BrainPower_Conditions_Final)] <- ""
+```
+
+
+```{r}
+write_csv(BrainPower_Harmonized_Conditions_annotated, file = "BrainPower_Conditions_v6.csv")
+```
